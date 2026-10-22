@@ -748,56 +748,29 @@ def color_check(job):
 COLOR_WARN = 70   # RGB 中位色的距离；同色系不同光线一般在 40 以内
 
 
-def rework_after(job):
-    """出图检查评 C 的图自动返工一次：只重出那几张，带上 C 的原因。返工出来的图和原来那批算同一批。"""
-    p = job.get("params") or {}
-    if job["kind"] != "lock" or p.get("reworkOf"):
-        return None
-    jd = Path(p["jobDir"])
-    files = sorted(str(f) for f in (jd / "out").glob("*") if f.suffix.lower() in IMG_EXT)
-    rep_f = jd / "report.md"
-    grades = image_grades(rep_f.read_text("utf-8", errors="replace") if rep_f.is_file() else "", files)
-    gen, ok_by_hand = read_json_file(jd / "gen.json"), load_state().get("imgApproved") or {}
-    # 人工挑过的不返工；agent 自己已经返工 2 次（出过 3 版）的也不再返工，留给人挑
-    bad = [f for f in files if grades[f]["grade"] == "C" and f not in ok_by_hand
-           and not (isinstance(gen.get(Path(f).name), dict) and isinstance(gen[Path(f).name].get("retries"), int) and gen[Path(f).name]["retries"] >= 2)]
-    if not bad:
-        return None
-    rows = read_json_file(jd / "recipe.json").get("rows") or []
-    by_out = {r["out"]: r["ref"] for r in rows}
-    refs = []
-    for f in bad:
-        ref = by_out.get(Path(f).name) or (rows[files.index(f)]["ref"] if len(rows) == len(files) else "")
-        if ref and ref not in refs:
-            refs.append(ref)
-    if not refs:
-        return None
-    why = "；".join("%s：%s" % (Path(f).name, grades[f]["note"]) for f in bad if grades[f]["note"])
-    note = ("返工：上一批这几张检查没过（%s），这次重点盯这几处，其他照旧。" % (why or "评 C")) + ((" " + p.get("note")) if p.get("note") else "")
-    try:
-        return r_lock_job("lock", {"item": p["item"], "account": p.get("account") or "", "face": p["face"], "model": p.get("model") or "",
-                                   "refs": refs, "style": p.get("style"), "note": note[:300], "reworkOf": jd.name})["job"]
-    except ValueError as e:
-        update_job(job["id"], summary="出图完成；没能自动返工：%s" % e)
-        return None
-
-
 def chain_after(job):
-    """出图完成后：颜色比对提醒、评 C 的自动返工一次，再按出图时的设置自动挑 A 级图（没有 A 就用 B）写文案；
-    失败只记在任务里，不影响出图结果。"""
+    """出图完成后：颜色比对提醒，再按出图时的设置自动挑 A 级图（没有 A 就用 B）写文案；失败只记在任务里，不影响出图结果。
+    评 C 的不再由工作台另开任务返工（agent 自己已经返工过一次，再开一轮要把规则从头读一遍，费时间也费额度），没过的版本留给人挑。"""
     p = job.get("params") or {}
     if job["kind"] == "lock":
         try:
             color_check(job)
         except Exception as e:
             print("color check error:", e)
-        rework_after(job)
     if job["kind"] != "lock" or not p.get("autoWrite"):
         return
     try:
-        files = sorted(str(f) for f in (Path(p["jobDir"]) / "out").glob("*") if f.suffix.lower() in IMG_EXT)
-        rep_f = Path(p["jobDir"]) / "report.md"
-        grades = image_grades(rep_f.read_text("utf-8", errors="replace") if rep_f.is_file() else "", files)
+        dirs = [Path(p["jobDir"])]
+        if p.get("reworkOf"):   # 试拍后续出的：试拍那张也算进来一起写
+            dirs.insert(0, Path(p["jobDir"]).parent / p["reworkOf"])
+        files, grades = [], {}
+        for d in dirs:
+            fs = sorted(str(f) for f in (d / "out").glob("*") if f.suffix.lower() in IMG_EXT)
+            rep_f = d / "report.md"
+            grades.update(image_grades(rep_f.read_text("utf-8", errors="replace") if rep_f.is_file() else "", fs))
+            files += fs
+        ok_by_hand = load_state().get("imgApproved") or {}
+        grades.update({f: {"grade": "B", "note": ""} for f in files if f in ok_by_hand})
         pick = [f for f in files if grades[f]["grade"] == "A"] or [f for f in files if grades[f]["grade"] in ("B", "")]
         if not pick:
             raise ValueError("没有 A/B 级图，没自动写文案")
@@ -1303,7 +1276,7 @@ def item_view(it, rb, st):
         it["grades"].update(image_grades(j["report"], j["images"] + j["rejectedFiles"]))
     for p, x in (st.get("imgApproved") or {}).items():
         if p in it["grades"]:
-            it["grades"][p] = {"grade": "人工", "note": x.get("why") or "三次没过，人工挑的"}
+            it["grades"][p] = {"grade": "人工", "note": x.get("why") or "没过检查，人工挑的"}
     it["drafts"] = len([r for r in rb["reviews"] if any(str(x) in str(r.get("images")) for x in imgs)]) if imgs else 0
     running = [j for j in st["jobs"] if j.get("params", {}).get("item") == it["id"] and j["status"] in ("queued", "running")]
     it["busy"] = running[0]["kind"] if running else ""
@@ -1502,12 +1475,13 @@ def lock_prompt(p, job_name):
             + ("每张把素材图当编辑底图，动作、比例、场景和配饰都不动，衣服换成原图目录里的产品；脸和发型换成任务单「脸部处理」写的模特，按 C3「换成我们的模特」三步做（衣服先过检查，再贴真脸、融合）。附图按任务单的顺序。"
                if with_model else
                "每张把素材图当编辑底图，人、脸、动作、比例、场景和配饰都不动，只把衣服换成原图目录里的产品，附图按任务单的顺序；脸按任务单的「脸部处理」来。")
-            + "每张都用 tools/crop_compare.py 把衣服关键部位放大和产品图并排检查，评 A/B/C，没过的只返工那一项，成品按表里的文件名存到 jobs/%s/out，最后运行 tools/contact_sheet.py 并写 report.md，report.md 里每张成品单独一行写「<文件名>：评级 A/B/C，一句原因」。" % job_name
+            + "检查只放大看要紧的：档案「检查要点」里「必过」的条目逐条用 tools/crop_compare.py 放大和产品图并排对，再放大看一次脸"
+              "（不露脸就看有没有露出眼睛鼻子）；「尽量」的条目看整张图扫一眼就行，不单独放大。评 A/B/C，没过的只返工那一项，成品按表里的文件名存到 jobs/%s/out，最后运行 tools/contact_sheet.py 并写 report.md，report.md 里每张成品单独一行写「<文件名>：评级 A/B/C，一句原因」。" % job_name
             + (("风格按任务单「补充要求」里写的「%s」来。" % all_styles(load_state())[p["style"]]) if style_note(load_state(), p.get("style")) else "")
             + ("每张成品出完，把生图用的模型名、seed（工具不给就写空字符串）、实际附上的每张参考图路径、返工次数记进 jobs/%s/gen.json，"
                "格式 {\"<文件名>\": {\"model\": \"\", \"seed\": \"\", \"attached\": [\"...\"], \"retries\": 0}}。" % job_name)
-            + ("没过检查的每一版都不要删，存进 jobs/%s/rejected/，文件名在表里的输出文件名后面加 _v1、_v2、_v3；"
-               "同一张最多出 3 版（第一次加返工 2 次），3 版都不过就停下不再返工，report.md 里这一张那行写「评级 C」和每版的问题，留给人挑。" % job_name)
+            + ("没过检查的每一版都不要删，存进 jobs/%s/rejected/，文件名在表里的输出文件名后面加 _v1、_v2；"
+               "同一张最多出 2 版（第一次加返工 1 次），2 版都不过就停下不再返工，report.md 里这一张那行写「评级 C」和每版的问题，留给人挑。" % job_name)
             + ("「不露脸」是必过项：按任务单里的不露脸要求裁切构图，成品里露出鼻子或眼睛就评 C，返工时直接把画面上沿往下裁。" if p["face"] == "hide" else "")
             + "我已经在工作台点了出图，这就是确认，不用再问我。生图额度用完时停下，在 report.md 写明做到哪一张。"
             + "全部完成后，最后一行只输出：{\"ok\":true,\"images\":<out 里的张数>}")
@@ -2279,6 +2253,7 @@ def r_lock_job(kind, p):
             if not m["faces"]["face_closeup"] and not m["faces"]["face_1"]:
                 raise ValueError("这个模特还没有正脸照片")
         refs = p.get("refs") or []
+        all_refs = refs
         known = set(list_refs())
         if not refs or any(r not in known for r in refs):
             raise ValueError("请从参考图库里选至少 1 张参考图")
@@ -2296,6 +2271,17 @@ def r_lock_job(kind, p):
         (jd / "out").mkdir(parents=True)
         (jd / "rejected").mkdir()
         rework = safe_name(str(p.get("reworkOf") or "")) if p.get("reworkOf") else ""
+        auto = p.get("autoWrite") if isinstance(p.get("autoWrite"), dict) else None
+        if auto:
+            require_account(auto.get("account"))
+            auto = {"account": str(auto["account"]), "count": 2 if str(auto.get("count")) == "2" else 1,
+                    "cover": auto.get("cover") if auto.get("cover") in COVERS else "", "note": str(auto.get("note") or "")[:300]}
+        # 先试出 1 张：人看过构图、脸、衣服都对，再出剩下的（剩下的算同一批）；自动写文案等剩下的出完再写
+        trial = bool(p.get("trial")) and not rework and len(refs) > 1
+        rest, rest_auto = (refs[1:], auto) if trial else ([], None)
+        if trial:
+            refs, auto = refs[:1], None
+            p = dict(p, refs=refs)
         (jd / "job.md").write_text(lock_job_md(it, p, name), "utf-8")
         tag_ = "模特" if p["face"] == "model" else "产品"
         model = next((x for x in list_models() if x["name"] == p.get("model")), None) if p["face"] == "model" else None
@@ -2305,37 +2291,47 @@ def r_lock_job(kind, p):
             "model": p.get("model") or "", "modelPhotos": [v for v in (model or {}).get("faces", {}).values() if v],
             "product": [str(f) for f, _ in product_refs(it)],
             "refs": refs, "note": str(p.get("note") or "")[:300], "createdAt": now_ms(), "reworkOf": rework,
+            "rest": rest, "restAuto": rest_auto, "restOf": bool(p.get("restOf")),
             "rows": [{"out": "%s_%s_%02d_%s.png" % (safe_name(it["lockName"]), tag_, i + 1, safe_name(Path(r).stem)), "ref": r} for i, r in enumerate(refs)],
         }, ensure_ascii=False, indent=1), "utf-8")
-        auto = p.get("autoWrite") if isinstance(p.get("autoWrite"), dict) else None
-        if auto:
-            require_account(auto.get("account"))
-            auto = {"account": str(auto["account"]), "count": 2 if str(auto.get("count")) == "2" else 1,
-                    "cover": auto.get("cover") if auto.get("cover") in COVERS else "", "note": str(auto.get("note") or "")[:300]}
-
-
         def remember(s):
-            if rework:   # 返工只补几张，不改记住的拍法
+            if rework:   # 返工、试拍后续出的只补几张，不改记住的拍法
                 s.setdefault("jobAcc", {})[name] = str(p.get("account") or "")
                 return
             lp = s.setdefault("lastPick", {})
             lp.update(face=p["face"], model=p.get("model") or lp.get("model", ""), style=p["style"])
-            lp.setdefault("refsByCat", {})[it.get("category") or "其他"] = refs
+            lp.setdefault("refsByCat", {})[it.get("category") or "其他"] = all_refs
             lp.setdefault("faceByStyle", {})[p["style"]] = p["face"]
             # 每个号的拍法：下次在这个号出图，风格、脸、模特、参考图自动带上
             acc = p.get("account") or (auto or {}).get("account")
             if acc:
-                lp.setdefault("byAcc", {})[str(acc)] = {"style": p["style"], "face": p["face"], "model": p.get("model") or "", "refs": refs}
+                lp.setdefault("byAcc", {})[str(acc)] = {"style": p["style"], "face": p["face"], "model": p.get("model") or "", "refs": all_refs}
                 s.setdefault("jobAcc", {})[name] = str(acc)   # 这批图是给哪个号出的
                 if not cast_of(s, it["id"], acc):
                     bind_cast(s, it["id"], acc, {"face": p["face"], "model": p.get("model") or ""}, "第一次出图时定下")
         mutate(remember)
         job = {"id": uuid.uuid4().hex[:10], "kind": "lock", "cwd": str(lock_root()),
                "params": {"item": it["id"], "account": str(p.get("account") or (auto or {}).get("account") or ""), "face": p["face"], "model": p.get("model") or "", "refs": refs, "jobDir": str(jd), "autoWrite": auto, "style": p["style"], "reworkOf": rework},
-               "title": ("返工 · " if rework else "出图 · ") + "%s · %s%d 张" % (it["name"], (styles[p["style"]] + " ") if p["style"] in styles else "", len(refs)), "prompt": lock_prompt(p, name),
+               "title": ("续出 · " if p.get("restOf") else "返工 · " if rework else "试拍 · " if trial else "出图 · ") + "%s · %s%d 张" % (it["name"], (styles[p["style"]] + " ") if p["style"] in styles else "", len(refs)), "prompt": lock_prompt(p, name),
                "status": "queued", "createdAt": now_ms(), "estimateMin": MIN_PER_IMAGE[p["face"]] * len(refs)}
     mutate(lambda s: s["jobs"].append(job))
     return {"ok": True, "job": job}
+
+
+def r_lock_rest(p):
+    """试拍那张人看过没问题，按同样的设置把剩下的参考图出完，算同一批。"""
+    need(p, "batch")
+    jd = lock_root() / "jobs" / safe_name(str(p["batch"]))
+    rc = read_json_file(jd / "recipe.json")
+    if not rc.get("rest"):
+        raise ValueError("这批没有等着出的图")
+    st = load_state()
+    for j in st["jobs"]:
+        if j["kind"] == "lock" and (j.get("params") or {}).get("reworkOf") == jd.name and j["status"] in ("queued", "running", "done"):
+            raise ValueError("剩下的已经在出了")
+    return r_lock_job("lock", {"item": rc["item"], "account": rc.get("account") or "", "face": rc["face"], "model": rc.get("model") or "",
+                               "refs": rc["rest"], "style": rc.get("style"), "note": rc.get("note") or "",
+                               "autoWrite": rc.get("restAuto"), "reworkOf": jd.name, "restOf": True})
 
 
 def r_lock_multi(p):
@@ -2462,7 +2458,7 @@ def r_image(body):
         mutate(lambda s: s["imgRejected"].pop(path, None))
         return {"ok": True}
     if body["action"] == "approve":
-        # 三次都没过的版本都留在 rejected/ 里，人看过觉得能用就挑出来放回 out/，记下是人挑的
+        # 两版都没过的版本都留在 rejected/ 里，人看过觉得能用就挑出来放回 out/，记下是人挑的
         if not Path(path).is_file() or path in (st.get("imgRejected") or {}) or not rejected_image(path, st):
             raise ValueError("只能挑这批 rejected 里留着的图")
         jobs = lock_root() / "jobs"
@@ -2474,7 +2470,7 @@ def r_image(body):
             dst = dst.with_name("%s_%s%s" % (dst.stem, uuid.uuid4().hex[:4], dst.suffix))
         dst.parent.mkdir(exist_ok=True)
         shutil.move(path, str(dst))
-        why = str(body.get("why") or "").strip()[:100] or "三次没过，人工挑的"
+        why = str(body.get("why") or "").strip()[:100] or "没过检查，人工挑的"
         mutate(lambda s: s.setdefault("imgApproved", {}).__setitem__(str(dst), {"from": path, "at": now_ms(), "why": why}))
         return {"ok": True, "path": str(dst)}
     raise ValueError("未知操作")
@@ -2952,7 +2948,7 @@ ROUTES = {
     "/api/reschedule": r_reschedule, "/api/account/copy": r_account_copy, "/api/topic": r_topic,
     "/api/prompt/preview": r_prompt_preview, "/api/ref/style": r_ref_style, "/api/ref/delete": r_ref_delete,
     "/api/style/group": r_style_group, "/api/item/real": r_item_real, "/api/account/cover": r_account_cover,
-    "/api/account/persona": r_account_persona, "/api/account/cast": r_account_cast, "/api/item/cast": r_item_cast, "/api/model": r_model, "/api/image": r_image, "/api/brake": r_brake, "/api/item/piece": r_item_piece, "/api/lock/multi": r_lock_multi,
+    "/api/account/persona": r_account_persona, "/api/account/cast": r_account_cast, "/api/item/cast": r_item_cast, "/api/model": r_model, "/api/image": r_image, "/api/brake": r_brake, "/api/item/piece": r_item_piece, "/api/lock/multi": r_lock_multi, "/api/lock/rest": r_lock_rest,
 }
 
 

@@ -1093,39 +1093,51 @@ class PanelTests(unittest.TestCase):
         self.assertFalse((self.m.item_dir(it) / "p2_front.png").exists())
         self.assertFalse(self.m.find_item(self.m.load_state(), it["id"])["specOk"])
 
-    def test_104_c_grade_reworks_once_same_batch(self):
+    def test_104_trial_one_then_rest_same_batch(self):
         root, it = self.lock_setup()
         self.run_one(self.m.r_job({"kind": "spec", "params": {"item": it["id"]}})["job"])
         self.m.r_item_checks({"id": it["id"], "confirmed": True})
         refs = self.m.list_refs()
-        job = self.m.r_job({"kind": "lock", "params": {"item": it["id"], "account": "1", "face": "ai", "refs": refs, "note": "扣子全扣"}})["job"]
-        self.run_one(job)
+        self.assertGreater(len(refs), 1)
+        job = self.m.r_job({"kind": "lock", "params": {"item": it["id"], "account": "1", "face": "ai", "refs": refs, "note": "扣子全扣",
+                                                       "trial": True, "autoWrite": {"account": "1", "count": 1}}})["job"]
+        # 先只出 1 张，不自动写；记住的拍法还是全部参考图
+        self.assertEqual(job["params"]["refs"], refs[:1])
+        self.assertIsNone(job["params"]["autoWrite"])
+        self.assertTrue(job["title"].startswith("试拍"))
+        self.assertEqual(self.m.load_state()["lastPick"]["byAcc"]["1"]["refs"], refs)
         jd = Path(job["params"]["jobDir"])
-        outs = sorted(str(p) for p in (jd / "out").glob("*"))
-        rows = json.loads((jd / "recipe.json").read_text())["rows"]
-        for r, f in zip(rows, outs):   # 按任务单的文件名存
-            Path(f).rename(jd / "out" / r["out"])
-        (jd / "report.md").write_text("%s：评级 A，好\n%s：评级 C，领子形状不对" % (rows[0]["out"], rows[1]["out"]), "utf-8")
-        before = self.m.load_state()["lastPick"]["byAcc"]["1"]["refs"]
-        self.m.chain_after(dict(job, status="done"))
-        rw = self.m.load_state()["jobs"][-1]
-        self.assertEqual(rw["params"]["reworkOf"], jd.name)
-        self.assertEqual(rw["params"]["refs"], [rows[1]["ref"]])
-        self.assertIn("领子形状不对", rw["prompt"] + (Path(rw["params"]["jobDir"]) / "job.md").read_text())
-        self.assertTrue(rw["title"].startswith("返工"))
-        self.assertEqual(self.m.load_state()["lastPick"]["byAcc"]["1"]["refs"], before)
-        self.run_one(rw)
-        # 返工的再评 C 也不再返工
-        rjd = Path(rw["params"]["jobDir"])
-        rout = sorted(rjd.glob("out/*"))[0]
-        (rjd / "report.md").write_text("%s：评级 C，还是不对" % rout.name, "utf-8")
+        rc = json.loads((jd / "recipe.json").read_text())
+        self.assertEqual(rc["rest"], refs[1:])
+        self.run_one(job)
+        trial_img = sorted(str(p) for p in (jd / "out").glob("*"))
+        (jd / "report.md").write_text("%s：评级 C，领子形状不对" % Path(trial_img[0]).name, "utf-8")
         n = len(self.m.load_state()["jobs"])
-        self.m.chain_after(dict(rw, status="done"))
-        self.assertEqual(len(self.m.load_state()["jobs"]), n)
-        # 返工的图和原来那批算同一批，可以一起写
-        (rjd / "report.md").write_text("%s：评级 A，好了" % rout.name, "utf-8")
-        w = self.m.r_job({"kind": "write", "params": {"account": "1", "item": it["id"], "images": [str(jd / "out" / rows[0]["out"]), str(rout)]}})
-        self.assertTrue(w["ok"])
+        self.m.chain_after(dict(job, status="done"))
+        self.assertEqual(len(self.m.load_state()["jobs"]), n)   # 评 C 不再自动返工，也不自动写
+        (jd / "report.md").write_text("%s：评级 A，好" % Path(trial_img[0]).name, "utf-8")
+        # 看过没问题：出剩下的，算同一批，出完自动写（试拍那张也算进去）
+        rest = self.m.r_lock_rest({"batch": jd.name})["job"]
+        self.assertTrue(rest["title"].startswith("续出"))
+        self.assertEqual(rest["params"]["refs"], refs[1:])
+        self.assertEqual(rest["params"]["reworkOf"], jd.name)
+        self.assertEqual(rest["params"]["autoWrite"]["account"], "1")
+        self.assertIn("扣子全扣", (Path(rest["params"]["jobDir"]) / "job.md").read_text())
+        with self.assertRaises(ValueError):
+            self.m.r_lock_rest({"batch": jd.name})
+        self.run_one(rest)
+        rjd = Path(rest["params"]["jobDir"])
+        rout = sorted(str(p) for p in (rjd / "out").glob("*"))
+        (rjd / "report.md").write_text("\n".join("%s：评级 A，好" % Path(f).name for f in rout), "utf-8")
+        self.m.check_batch_images(trial_img + rout)
+        self.m.chain_after(dict(rest, status="done"))
+        w = self.m.load_state()["jobs"][-1]
+        self.assertEqual(w["kind"], "write")
+        self.assertIn(trial_img[0], w["params"]["images"])
+        # 只选 1 张参考图时不试拍
+        self.m.update_job(w["id"], status="cancelled")
+        one = self.m.r_job({"kind": "lock", "params": {"item": it["id"], "account": "1", "face": "ai", "refs": refs[:1], "trial": True}})["job"]
+        self.assertTrue(one["title"].startswith("出图"))
 
     def test_105_color_flag(self):
         try:
@@ -1219,7 +1231,9 @@ class PanelTests(unittest.TestCase):
         self.assertNotIn("不露脸（街拍", self.m.lock_job_md(it, p2, "x"))
         self.assertNotIn("不露脸」是必过项", self.m.lock_prompt(p2, "x"))
         # 没过的每一版都留着，最多 3 版
-        self.assertIn("_v1、_v2、_v3", job["prompt"])
+        self.assertIn("_v1、_v2；", job["prompt"])
+        self.assertIn("最多出 2 版", job["prompt"])
+        self.assertIn("「尽量」的条目看整张图扫一眼", job["prompt"])
 
     def test_109_human_picks_after_three_fails(self):
         root, it = self.shoot_ready()
