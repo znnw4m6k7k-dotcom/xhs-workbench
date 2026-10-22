@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""女装工作台的命令行入口：让 Codex 在对话里一句话操作工作台（和网页按钮走同一套接口）。
+"""the rumah小红书工作台的命令行入口：让 Codex 在对话里一句话操作工作台（和网页按钮走同一套接口）。
 
   python3 studio.py status                      # 一屏看全：新款进度、AI 任务、待审稿、排期
   python3 studio.py add 正面.jpg [吊牌.jpg ...]  # 拖照片建新款，AI 自动读吊牌填资料、写档案
@@ -413,7 +413,7 @@ def c_refs(a):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="女装工作台命令行")
+    ap = argparse.ArgumentParser(description="the rumah小红书工作台命令行")
     ap.add_argument("--account")
     sp = ap.add_subparsers(dest="cmd", required=True)
     sp.add_parser("status")

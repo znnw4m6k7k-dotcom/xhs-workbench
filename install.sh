@@ -24,7 +24,7 @@ cp "$SRC/references/gaosaka-style.md" "$X/references/gaosaka-style.md"
 cd "$X/panel" && python3 -m unittest test_server -q
 bash "$X/panel/stop.sh" >/dev/null 2>&1 || true
 bash "$X/panel/start.sh"
-echo "装好了。"
+echo "the rumah小红书工作台 装好了。"
 cat <<TIP
 
 第一次用，按顺序做（详细见 $X/使用说明.md）：

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""女装小红书工作台（本机服务）。
+"""the rumah小红书工作台（本机服务）。
 
 在 Codex 里说“打开工作台”时由 xhs-autopilot 启动，然后在 Codex 内置浏览器里打开
 http://127.0.0.1:17865（被占用就自动换下一个端口，实际地址写在 ~/.xhs-studio/url.txt）。只用标准库，macOS 自带的 python3 即可运行。
@@ -3089,7 +3089,7 @@ def main():
         demo_seed()
     threading.Thread(target=job_worker, daemon=True).start()
     threading.Thread(target=scheduler, daemon=True).start()
-    print("女装小红书工作台已启动：" + url + ("（演示模式）" if DEMO else ""))
+    print("the rumah小红书工作台已启动：" + url + ("（演示模式）" if DEMO else ""))
     if a.open:
         webbrowser.open(url)
     try:

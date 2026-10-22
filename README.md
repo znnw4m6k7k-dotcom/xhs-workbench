@@ -1,4 +1,4 @@
-# 小红书女装工作台
+# the rumah小红书工作台
 
 给女装团队用的小红书图文工作台：产品图（对镜自拍 / 街拍）→ 选题和文案 → 到点由浏览器自动发布 → 历史记录。出图依赖 [xhs-lock-studio](https://github.com/znnw4m6k7k-dotcom/xhs-lock-studio)。
 
