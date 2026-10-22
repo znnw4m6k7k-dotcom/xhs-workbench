@@ -684,6 +684,32 @@ class PanelTests(unittest.TestCase):
         self.m.r_item_real({"id": it["id"], "action": "add", "name": "实拍", "data": self.b64()})
         self.assertIn("品牌水印", self.m.r_prompt_preview({"account": "1", "item": it["id"]})["prompt"])
 
+    def test_73_copy_guide_risk_words_comment_ref_presets(self):
+        # 限流词：内置的和 fashion.json 的合在一起，写稿、保存、置顶评论都查
+        for w in ("平替", "一比一", "大牌同款", "淘宝"):
+            self.assertIn(w, self.m.FASHION["riskErrors"])
+        with self.assertRaises(ValueError):
+            self.m.r_review({"account": "1", "id": self.rid, "action": "save", "body": "一比一还原，穿着很舒服。"})
+        with self.assertRaises(ValueError):
+            self.m.r_review({"account": "1", "id": self.rid, "action": "save", "comment": "加微信问尺码"})
+        # 置顶评论：写稿带回来、能保存、改稿保留
+        job = self.m.r_job({"kind": "write", "params": {"account": "1", "item": self.item_id(), "images": [str(self.image)],
+                                                        "ref": "对标：开头一句痛点，三段，结尾提问。"}})["job"]
+        self.assertIn("对标：开头一句痛点", job["prompt"])
+        self.assertIn("置顶评论", job["prompt"])
+        self.assertIn("平替", job["prompt"])
+        self.m.verify_job(job, self.m.demo_job_effect(job), {"t": 0})
+        rid = self.m.load_state()["jobs"][-1]["drafts"][0]
+        self.assertIn("160cm", self.m.review_by_id(rid)["comment"])
+        self.m.r_review({"account": "1", "id": rid, "action": "save", "comment": "模特 165 穿 S，胯宽拿 M。"})
+        self.assertEqual(self.m.review_by_id(rid)["comment"], "模特 165 穿 S，胯宽拿 M。")
+        rw = self.m.r_review({"account": "1", "id": rid, "action": "rewrite", "note": "开头更抓人"})["job"]
+        self.assertIn("模特 165 穿 S", rw["prompt"])
+        self.m.verify_job(rw, self.m.demo_job_effect(rw), {"t": 0})
+        self.assertEqual(self.m.review_by_id(rid)["comment"], "模特 165 穿 S，胯宽拿 M。")
+        # 三个号的预设
+        self.assertEqual(set(self.m.api_state()["copyPresets"]), {"the reels", "the rumah daily", "the rumah"})
+
 
 if __name__ == "__main__":
     unittest.main()

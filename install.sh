@@ -3,7 +3,7 @@
 set -e
 SRC="$(cd "$(dirname "$0")" && pwd)"
 X="$HOME/.codex/skills/xhs-autopilot"
-mkdir -p "$X/panel" "$X/publisher"
+mkdir -p "$X/panel" "$X/publisher" "$X/references"
 if [ -f "$X/panel/server.py" ]; then
   B="$X/panel/backup-$(date +%Y%m%d-%H%M)-before-update"
   mkdir -p "$B"
@@ -16,6 +16,7 @@ cp "$SRC"/panel/server.py "$SRC"/panel/index.html "$SRC"/panel/studio.py "$SRC"/
 # 店里自己的设置和启动脚本已经有就不动
 for f in start.sh stop.sh; do [ -f "$X/panel/$f" ] || cp "$SRC/panel/$f" "$X/panel/"; done
 cp "$SRC"/publisher/*.py "$SRC"/publisher/*.html "$X/publisher/"
+cp "$SRC"/references/*.md "$X/references/"
 cp "$SRC/SKILL.md" "$X/SKILL.md"
 cd "$X/panel" && python3 -m unittest test_server -q
 bash "$X/panel/stop.sh" >/dev/null 2>&1 || true
