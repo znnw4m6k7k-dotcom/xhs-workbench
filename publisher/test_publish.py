@@ -25,10 +25,15 @@ class T(unittest.TestCase):
     def tearDownClass(cls):
         cls.b.close(); cls.pw.stop()
 
-    def page(self, login=False, success=True, blocked=""):
+    def page(self, login=False, success=True, blocked="", notes=None, card=""):
         p = self.b.new_page()
         def handle(route):
             u = route.request.url
+            if "/note-manager" in u:
+                return route.fulfill(body="<html><body>%s<script>fetch('/api/galaxy/creator/note/user/posted?tab=0')</script></body></html>" % card,
+                                     content_type="text/html; charset=utf-8")
+            if "/note/user/posted" in u:
+                return route.fulfill(body=json.dumps({"data": {"notes": notes or []}}), content_type="application/json")
             if "/publish/success" in u:
                 return route.fulfill(body="<html><body>发布成功</body></html>", content_type="text/html; charset=utf-8")
             if login and "/publish/publish" in u:
@@ -86,6 +91,35 @@ class T(unittest.TestCase):
             self.assertIn("没看到「发布成功」", str(e.exception))
         finally:
             X._wait_publish_success.__defaults__ = (30,)
+
+    def test_note_link_after_publish(self):
+        nid = "6718a0c2000000001b03f2aa"
+        p = self.page(notes=[{"id": "6718a0c2000000001b03f2ab", "display_title": "别的笔记"},
+                             {"id": nid, "display_title": "银灰 外套", "images_list": [{}, {}]}])
+        r = X.publish_image("t", title="银灰外套", content="正文", images=[str(self.img)], page=p)
+        self.assertEqual(r["noteId"], nid)
+        self.assertEqual(r["noteUrl"], "https://www.xiaohongshu.com/explore/" + nid)
+
+    def test_note_link_from_page_card(self):
+        nid = "6718a0c2000000001b03f2ac"
+        p = self.page(card='<div class="note"><a href="https://www.xiaohongshu.com/explore/%s"><span>银灰外套</span></a></div>' % nid)
+        r = X.publish_image("t", title="银灰外套", content="正文", images=[str(self.img)], page=p)
+        self.assertEqual(r["noteId"], nid)
+
+    def test_note_link_missing_still_ok(self):
+        p = self.page(notes=[{"id": "6718a0c2000000001b03f2ab", "display_title": "别的笔记"}])
+        X.NOTE_WAIT_SEC = 2
+        try:
+            r = X.publish_image("t", title="银灰外套", content="正文", images=[str(self.img)], page=p)
+        finally:
+            X.NOTE_WAIT_SEC = 15
+        self.assertTrue(r["ok"])
+        self.assertEqual(r["noteUrl"], "")
+
+    def test_find_note_id(self):
+        data = {"data": {"notes": [{"note_id": "x", "title": "银灰外套"}, {"noteId": "6718a0c2000000001b03f2ad", "title": "银灰外套"}]}}
+        self.assertEqual(X.find_note_id(data, "银灰 外套"), "6718a0c2000000001b03f2ad")
+        self.assertEqual(X.find_note_id(data, "别的"), "")
 
     def test_login_expired(self):
         p = self.page(login=True)

@@ -504,6 +504,21 @@ class PanelTests(unittest.TestCase):
             self.m.r_publish_try({"account": "1", "id": rid, "markAi": False})
             self.assertNotIn("--ai", cli.call_args[0][0])
 
+    def test_63b_publish_keeps_note_link(self):
+        e = self.schedule()
+        url = "https://www.xiaohongshu.com/explore/6718a0c2000000001b03f2aa"
+        with patch.object(self.m, "xhs_cli", return_value=(True, {"ok": True, "shot": "", "noteUrl": url}, "")):
+            self.m.publish_one(e)
+        self.assertEqual(self.m.api_state()["archive"][0]["noteUrl"], url)
+        self.assertTrue(any("核对到了" in x for x in self.entry(e["id"])["log"]))
+
+    def test_63c_ai_tone_rules_are_shared(self):
+        tone = self.m.api_state()["fashion"]["aiTone"]
+        self.assertIn("家人们", tone["words"])
+        import re
+        hit = [label for pat, label in tone["patterns"] if re.search(pat, "不是面料不好，而是码选错了")]
+        self.assertEqual(hit, ["不是……而是……"])
+
     def test_64_reschedule_failed_post(self):
         e = self.schedule()
         with patch.object(self.m, "xhs_cli", return_value=(False, None, "网络断了")):
@@ -558,6 +573,8 @@ class PanelTests(unittest.TestCase):
                 self.assertIn(rule, prompt)
             self.assertIn("UTF-8 JSON", prompt)
             self.assertIn("18 字", prompt)
+            self.assertIn("去 AI 味", prompt)
+            self.assertIn("不是……而是……", prompt)
         self.assertIn("材质细节 / 季节场景 / 克制判断", prompts[0])
 
     def test_copy_style_persists_per_account_and_standard_keeps_original_hooks(self):

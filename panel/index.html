@@ -425,6 +425,9 @@ function checkDraft(d, needImg = true) {
   const banned = F().riskErrors.concat(String((acc() || {}).banned || '').split(/[、,，\s]+/).filter(Boolean));
   const e1 = banned.filter(w => all.includes(w)); if (e1.length) errs.push('违规词：' + e1.join('、'));
   const w1 = F().riskWarns.filter(w => all.includes(w)); if (w1.length) warns.push('慎用：' + w1.join('、'));
+  const ai = F().aiTone || {words: [], patterns: []};
+  const w2 = ai.words.filter(w => all.includes(w)).concat(ai.patterns.filter(([re]) => new RegExp(re).test(t + '\n' + b)).map(x => x[1]));
+  if (w2.length) warns.push('有 AI 腔：' + w2.join('、'));
   if (/^\s{0,3}#{1,6}\s|\*\*[^*]+\*\*|`/m.test(b)) errs.push('有 Markdown 符号');
   if (/^\s{0,3}(?:[-*>]\s)/m.test(b)) warns.push('有列表符号，小红书不识别');
   const n = (d.tags || []).length; if (n < 5 || n > 10) warns.push(`话题 ${n} 个，建议 8–10`);
@@ -1044,7 +1047,8 @@ function loginPage() {
 // ================================================================ 第 4 块 历史记录
 function histRows() {
   const rows = [];
-  for (const a of mine(D.archive)) rows.push({kind: 'pub', at: a.at, type: ['已发布', 'good'], title: a.title, note: `${a.ai === false ? '没标 AI' : a.ai ? '标了 AI 合成' : ''}`, act: a.shot ? `<a href="${img(a.shot)}" target="_blank" rel="noopener">看发布截图</a>` : ''});
+  for (const a of mine(D.archive)) rows.push({kind: 'pub', at: a.at, type: ['已发布', 'good'], title: a.title, note: `${a.ai === false ? '没标 AI' : a.ai ? '标了 AI 合成' : ''}`,
+    act: [/^https:\/\/www\.xiaohongshu\.com\//.test(a.noteUrl || '') ? `<a href="${esc(a.noteUrl)}" target="_blank" rel="noopener">打开笔记</a>` : '', a.shot ? `<a href="${img(a.shot)}" target="_blank" rel="noopener">看发布截图</a>` : ''].filter(Boolean).join(' · ')});
   for (const s of D.schedule.filter(s => String(s.account) === String(UI.acc) && ['failed', 'missed'].includes(s.status))) {
     const r = D.reviews.find(x => String(x.id) === String(s.review));
     if (r && r.status === '已发布') continue;
