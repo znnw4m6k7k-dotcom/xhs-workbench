@@ -645,6 +645,54 @@ class PanelTests(unittest.TestCase):
         self.assertTrue(proc.dead)
         self.assertIsNone(self.m.AWAKE["proc"])
 
+    # ---------------------------------------------------------------- Windows
+    def test_69b_windows_codex_prompt_goes_through_stdin(self):
+        """Windows 上 codex 是 codex.cmd：多行中文提示词不能放命令行，改成「-」从标准输入送，并提醒 python3 换 python。"""
+        cmd, stdin, prompt = self.m.codex_cmd("codex", ["exec"], "/w", "第一行\n第二行")
+        self.assertEqual(cmd[-1], "第一行\n第二行")
+        self.assertIsNone(prompt)
+        with patch.object(self.m, "IS_WIN", True):
+            cmd, stdin, prompt = self.m.codex_cmd(r"C:\npm\codex.cmd", ["exec", "-s", "danger-full-access"], r"C:\w", "第一行\n第二行")
+        self.assertEqual(cmd, [r"C:\npm\codex.cmd", "exec", "-s", "danger-full-access", "-C", r"C:\w", "-"])
+        self.assertEqual(stdin, self.m.subprocess.PIPE)
+        self.assertTrue(prompt.startswith("【这台电脑是 Windows】") and prompt.endswith("第一行\n第二行"))
+
+    def test_69c_windows_keep_awake_and_helpers(self):
+        self.m.DEMO = False
+        started = []
+        with patch.object(self.m, "IS_WIN", True), patch.object(self.m.threading, "Thread") as T:
+            T.return_value.start.side_effect = lambda: started.append(1)
+            self.m.keep_awake(True)
+            self.m.keep_awake(True)
+            self.assertTrue(self.m.AWAKE["want"])
+            self.assertEqual(len(started), 1)
+            self.m.keep_awake(False)
+            self.assertFalse(self.m.AWAKE["want"])
+            self.assertTrue(self.m.cover_font().lower().endswith((".ttc", ".ttf")))
+            self.assertNotIn("PingFang", self.m.cover_font())
+        self.assertIn("PingFang", self.m.cover_font())
+        self.assertIn("os", self.m.api_state())
+
+    def test_69d_windows_onedrive_documents(self):
+        home = Path(self.tmp.name) / "home"
+        alt = home / "OneDrive" / "Documents" / "xhs-lock-studio"
+        alt.mkdir(parents=True)
+        self.m.mutate(lambda s: s["settings"].update(lock_studio_path=str(home / "Documents" / "xhs-lock-studio")))
+        with patch.object(self.m, "HOME", home):
+            self.assertEqual(self.m.lock_root(), home / "Documents" / "xhs-lock-studio")
+            with patch.object(self.m, "IS_WIN", True):
+                self.assertEqual(self.m.lock_root(), alt)
+
+    def test_69e_windows_notify_uses_powershell_with_env(self):
+        self.m.DEMO = False
+        with patch.object(self.m, "IS_WIN", True), patch.object(self.m.shutil, "which", return_value="powershell"), \
+                patch.object(self.m.subprocess, "Popen") as P:
+            self.m.notify("所有号已暂停发布", "主号：验证码 \"引号\"")
+        args, kw = P.call_args
+        self.assertEqual(args[0][0], "powershell")
+        self.assertEqual(kw["env"]["XHS_NOTE_TEXT"], "主号：验证码 \"引号\"")
+        self.assertNotIn("验证码", args[0][-1])
+
 
     # ---------------------------------------------------------------- 三个号：拍法、实拍图、封面样式
     def b64(self, raw=None):

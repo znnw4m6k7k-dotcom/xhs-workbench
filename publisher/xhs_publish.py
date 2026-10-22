@@ -16,7 +16,8 @@
           --images 1.jpg,2.jpg --tags "外套 小个子穿搭" [--at "2026-10-22 20:00"] [--ai] [--dry-run]
 
 需要先装一次：pip3 install playwright && python3 -m playwright install chromium
-（装了 Google Chrome 会优先用 Chrome，更接近真人浏览器。）
+（Windows 上命令是 python -m pip install playwright。装了 Google Chrome 会优先用 Chrome，更接近真人浏览器；
+ Windows 没装 Chrome 时用系统自带的 Edge，这时可以不下 Chromium。）
 结果最后一行输出 JSON：{"ok": true, ...} 或 {"ok": false, "error": "..."}，方便工作台和 Codex 读取。
 """
 from __future__ import annotations
@@ -34,6 +35,14 @@ from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger("xhs.publish")
+
+if os.name == "nt":
+    # Windows 控制台默认 GBK，最后那行 JSON 里有中文，统一按 UTF-8 输出
+    for _s in (sys.stdout, sys.stderr):
+        try:
+            _s.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
 
 HOME = Path(os.environ.get("XHS_PUBLISHER_HOME") or (Path.home() / ".xhs-studio" / "publisher"))
 SHOT_DIR = HOME / "shots"
@@ -76,10 +85,17 @@ def open_context(pw, account: str, headless: bool):
               locale="zh-CN", timezone_id="Asia/Shanghai", args=["--disable-blink-features=AutomationControlled"])
     if os.environ.get("XHS_BROWSER_PATH"):
         return pw.chromium.launch_persistent_context(executable_path=os.environ["XHS_BROWSER_PATH"], **kw)
-    try:
-        return pw.chromium.launch_persistent_context(channel="chrome", **kw)
-    except Exception:
-        return pw.chromium.launch_persistent_context(**kw)
+    # 先用装好的 Chrome；Windows 没装 Chrome 就用系统自带的 Edge；都不行才用 Playwright 自己下的 Chromium
+    for channel in browser_channels():
+        try:
+            return pw.chromium.launch_persistent_context(channel=channel, **kw)
+        except Exception:
+            continue
+    return pw.chromium.launch_persistent_context(**kw)
+
+
+def browser_channels() -> list:
+    return ["chrome", "msedge"] if os.name == "nt" else ["chrome"]
 
 
 def run_in_browser(account: str, fn, headless: bool = False):
@@ -1167,7 +1183,8 @@ def main(argv=None) -> int:
                                 visibility=a.visibility, dry_run=a.dry_run, headless=a.headless,
                                 products=[g.strip() for g in re.split(r"[,，、]+", a.goods) if g.strip()])
     except ModuleNotFoundError:
-        res = {"ok": False, "error": "还没装 Playwright：pip3 install playwright && python3 -m playwright install chromium"}
+        res = {"ok": False, "error": "还没装 Playwright：" + ("python -m pip install playwright" if os.name == "nt"
+                                                              else "pip3 install playwright && python3 -m playwright install chromium")}
     except Exception as e:
         res = {"ok": False, "error": str(e)}
     print(json.dumps(res, ensure_ascii=False))

@@ -14,18 +14,18 @@ description: the rumah小红书工作台：四大块 产品图（对镜自拍/�
    - 写文案只能用同一批的图，评 C 的和人工驳回的（挪进 rejected/）选不了；稿子驳回会自动取消排期，排期后改了文案或图，排期停住标「改过待确认」，重新确认时可以选回原时间。
    - 套装：一款最多 4 件，主件用 front/back/detail_*，其余每件 p<n>_front / p<n>_back / p<n>_detail；出图任务单先附每件正面再补细节（一次最多 4 张产品图）。
    - 场景组可以勾「哪些号能用」，出图时只列这个号能用的组。
-   - 出图完成后：成品中间的颜色和产品正面照差太多标「颜色?」提醒（Mac 上要有 Pillow，没有就跳过）；工作台不再另开任务返工：agent 自己最多出 2 版（返工 1 次），没过的每版都留在 rejected/（_v1/_v2），在「出好的图」里点「用这张」可以人工挑回来，标「人工」。
+   - 出图完成后：成品中间的颜色和产品正面照差太多标「颜色?」提醒（要有 Pillow，没有就跳过）；工作台不再另开任务返工：agent 自己最多出 2 版（返工 1 次），没过的每版都留在 rejected/（_v1/_v2），在「出好的图」里点「用这张」可以人工挑回来，标「人工」。
    - 选了 2 张以上参考图时默认先试出 1 张（recipe.json 记 rest），人看过点「出剩下的」（/api/lock/rest），剩下的算同一批，自动写文案等剩下的出完再写。
    - 检查只对「必过」条目和脸用 crop_compare 放大，「尽量」条目看整张。
    - rejected/ 里的图在写稿、定稿、发布前都会被拦；出图失败的摘要写明哪张评 C、原因、返工几次。
-   - 统一刹车：任何号发布遇到验证码、操作频繁、账号异常、登录失效或发布结果不确定，所有号的到点发布都暂停，Mac 弹通知，处理好后在工作台顶上点「恢复发布」；排期日历里也能「全部暂停」。
+   - 统一刹车：任何号发布遇到验证码、操作频繁、账号异常、登录失效或发布结果不确定，所有号的到点发布都暂停，电脑弹通知（Mac 系统通知 / Windows 通知中心），处理好后在工作台顶上点「恢复发布」；排期日历里也能「全部暂停」。
 2. **文案**：选题库（按账号，场景 × 身材格子，联网出题，点「写这条」进写稿页，可贴对标笔记仿结构）→ 审稿（快捷改稿按钮、置顶评论）→ 文案设定（账号定位、口吻、禁用词、话题配比，三个号有预设一键套用，可试写）。
 3. **发布**：待发布（调封面、选时间、AI 标注可选）→ 排期日历（可切「全部号」看矩阵）→ 账号登录（加号时选人设，新号按起号节奏）。
 
 矩阵（多个号）：加号时选人设（街拍 / 测评 / 无人静物 / 房间上身不露脸 / 影棚 lookbook），拍法、封面、文案口吻一次填好；新号勾「按起号节奏」，第 1 周最多 1 篇、2–4 周每周 4 篇、5–8 周每周 5 篇，之后按人设。同一款在「出图」页点「给几个号各出一组」，每个号按自己的拍法各出图、各写稿。防撞车：同一张图不能在两个号定稿；标题或开头和别的号同款那篇太像会提示「换个角度」；同一款在不同号至少隔 2 天，不同号发布时间错开 30 分钟（自动时间已经按这些排）。测评号的图建议用实拍。
 4. **历史记录**：已发布、没发出 / 驳回（一键重新排期）、AI 任务。
 
-- 出图交给锁图工作台 `~/Documents/xhs-lock-studio`（只出图）；
+- 出图交给锁图工作台 `~/Documents/xhs-lock-studio`（只出图；Windows 开了 OneDrive 时放 `~/OneDrive/Documents/` 下也认）；
 - 文案由你（Codex）写，只用用户的 GPT/Codex 订阅；
 - 账号、稿件、排期都存在 `~/.xhs-studio/state.json`，**不调用任何 RedBeacon 命令**；
 - 发布用 `~/.codex/skills/xhs-autopilot/publisher/xhs_publish.py`，在工作台扫码登录，不扣点。
@@ -34,18 +34,32 @@ description: the rumah小红书工作台：四大块 产品图（对镜自拍/�
 
 工作台「文案 › 文案设定」新增写作风格，默认「高坂风格 · 品牌主理人」，可切回「日常分享」。高坂写法读 `references/gaosaka-style.md`：短段落、克制表达，先事实后价值，开发故事和市场证明只在有证据时使用。新稿、试写和改稿任务都会注入这些规则；按钮任务保持现有篇数、3 个标题候选和 JSON 契约，直接成稿。对话中明确调用 xiaohongshu-gaosaka-writer 时仍按该技能的完整创作流程执行。
 
+## 零、Mac 还是 Windows
+
+先看系统再选命令（PowerShell 里 `$env:OS` 是 `Windows_NT` 就是 Windows）。`~` 在 Windows 上是 `%USERPROFILE%`（PowerShell 写 `$env:USERPROFILE`），工作台装在 `$env:USERPROFILE\.codex\skills\xhs-autopilot`。
+
+| 做什么 | Mac | Windows（PowerShell） |
+|---|---|---|
+| 打开工作台 | `bash ~/.codex/skills/xhs-autopilot/panel/start.sh` | `python "$env:USERPROFILE\.codex\skills\xhs-autopilot\panel\start.py"` |
+| 停止工作台 | `bash ~/.codex/skills/xhs-autopilot/panel/stop.sh` | `python "$env:USERPROFILE\.codex\skills\xhs-autopilot\panel\stop.py"` |
+| 对话里操作 | `python3 ~/.codex/skills/xhs-autopilot/panel/studio.py <命令>` | `python "$env:USERPROFILE\.codex\skills\xhs-autopilot\panel\studio.py" <命令>` |
+| 系统浏览器打开地址 | `open <地址>` | `start <地址>` |
+| 更新 | `cd ~/xhs-workbench && git pull && bash install.sh` | `cd $env:USERPROFILE\xhs-workbench; git pull; powershell -ExecutionPolicy Bypass -File .\install.ps1` |
+
+Windows 上 `python` 找不到时用 `py -3`；两个都没有就让用户运行 `winget install -e --id Python.Python.3.12`，装好后重开 Codex。下文写的 `bash …start.sh`、`python3 …studio.py` 在 Windows 上都按这张表换。
+
 ## 一、打开工作台
 
 用户说“打开工作台”“打开面板”时：
-1. 执行 `bash ~/.codex/skills/xhs-autopilot/panel/start.sh`（已在运行会直接返回地址；实际地址写在 `~/.xhs-studio/url.txt`）。
-2. 在 Codex 内置浏览器里打开这个地址；内置浏览器不可用时用 `open <地址>` 在系统浏览器打开。
+1. 执行 `bash ~/.codex/skills/xhs-autopilot/panel/start.sh`（Windows 见上表；已在运行会直接返回地址；实际地址写在 `~/.xhs-studio/url.txt`）。
+2. 在 Codex 内置浏览器里打开这个地址；内置浏览器不可用时用 `open <地址>`（Windows：`start <地址>`）在系统浏览器打开。
 3. 一句话告诉用户：左边四大块按顺序走。「产品图」里点「上新一款」拖进正面照和吊牌照，填上材质手感和痛点；核对检查要点后出图，出完自动写文案；「文案 › 审稿」里挑标题、改字后点「文案定稿」；「发布」里调好封面点「确认排期」。第一次发布前在左上角点「小红书未登录」扫一次码。
 
 用户第一次用、或问“怎么用”“怎么开始”“验证码了怎么办”时：读 `~/.codex/skills/xhs-autopilot/使用说明.md`，按里面的顺序（账号登录 → 模特资料卡和固定模特 → 1 款 × 1 号只填不发试跑）一步步带用户做，一次只说下一步。
 
 工作台的按钮会用 `codex exec` 启动新的 Codex 任务，提示词由 `panel/server.py` 生成。任务里写着“我已经在工作台点了…”，视为用户已确认，不要再停下来提问。写稿和改稿任务只把结果写进指定的 JSON 文件，不发布。
 
-发布规则：**不用小红书平台的定时发布**，到点由工作台打开浏览器直接发。所以到点时 Mac 要开着、别合盖，工作台要在运行；有待发的稿时工作台会用 caffeinate 不让 Mac 闲置睡眠。错过时间超过设置里的分钟数（默认 30）就不补发，进「历史 › 没发出」，可以一键重新排期。同一个号一天一篇、前后至少隔 2 小时；不同号错开 30 分钟，同一款不同号隔 2 天。停止工作台：`bash ~/.codex/skills/xhs-autopilot/panel/stop.sh`。
+发布规则：**不用小红书平台的定时发布**，到点由工作台打开浏览器直接发。所以到点时电脑要开着、别合盖，工作台要在运行；有待发的稿时工作台会不让电脑闲置睡眠（Mac 用 caffeinate，Windows 用系统电源接口）。错过时间超过设置里的分钟数（默认 30）就不补发，进「历史 › 没发出」，可以一键重新排期。同一个号一天一篇、前后至少隔 2 小时；不同号错开 30 分钟，同一款不同号隔 2 天。停止工作台：`bash ~/.codex/skills/xhs-autopilot/panel/stop.sh`（Windows：`stop.py`，见上表）。
 
 ## 二、只在对话里写文案（不进工作台）
 
@@ -53,7 +67,7 @@ description: the rumah小红书工作台：四大块 产品图（对镜自拍/�
 
 ## 三、在对话里操作工作台
 
-员工可以不开网页，直接在对话里说。用 `python3 ~/.codex/skills/xhs-autopilot/panel/studio.py <命令>` 操作（和网页按钮同一套接口），把它的输出用人话转述给用户。工作台没在运行时先执行 `start.sh`。命令访问的是本机 127.0.0.1；如果沙箱拦了本机网络，按提示申请在沙箱外运行这一条命令。
+员工可以不开网页，直接在对话里说。用 `python3 ~/.codex/skills/xhs-autopilot/panel/studio.py <命令>` 操作（和网页按钮同一套接口），把它的输出用人话转述给用户。工作台没在运行时先执行 `start.sh`（Windows：`start.py`）。命令访问的是本机 127.0.0.1；如果沙箱拦了本机网络，按提示申请在沙箱外运行这一条命令。
 
 | 用户说 | 执行 |
 |---|---|
@@ -68,7 +82,7 @@ description: the rumah小红书工作台：四大块 产品图（对镜自拍/�
 | 用这几张图写文案 / 用某条选题写 | `write <款> [--images 路径,路径] [--topic 编号或几个字] [--split] [--note 要求]` |
 | 有哪些稿 / 看看这篇 | `drafts` / `show <稿>` |
 | 改标题 / 改正文 / 改话题 | `edit <稿> --title … / --body-file 文件 / --tags "a b c"`；用户口述修改意见让 AI 改：`revise <稿> "意见"` |
-| 通过 / 发了吧 / 排上 | 先 `approve <稿> [--at auto / now / "10-22 20:00"] [--no-ai]` 看发布时间，告诉用户（并提醒到点 Mac 要开着）；用户明确同意后再加 `--yes` 执行。不说时间就用 auto（下一个空的 12:30 / 20:00） |
+| 通过 / 发了吧 / 排上 | 先 `approve <稿> [--at auto / now / "10-22 20:00"] [--no-ai]` 看发布时间，告诉用户（并提醒到点电脑要开着）；用户明确同意后再加 `--yes` 执行。不说时间就用 auto（下一个空的 12:30 / 20:00） |
 | 有哪些模特 / 参考图 | `models` / `refs` |
 
 `<款>` 写名称里的几个字即可，`<稿>` 写编号或标题里的几个字；有歧义时命令会列出候选，问用户是哪一个。发布前的确认不能省：用户没同意，不加 `--yes`。

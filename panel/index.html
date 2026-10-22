@@ -954,11 +954,11 @@ function queuePage(r) {
   const head = `<div class="ihead"><div><h2>${esc(r.title)}</h2><div class="small muted">${esc(itemName(r.item) || '')}${(r.tags || []).length ? ` · ${(r.tags || []).length} 个话题` : ''} · ${len(r.body)} 字</div></div><button type="button" class="ghost" data-do="backToCopy" data-id="${r.id}" ${sched ? 'hidden' : ''}>文案还要改</button></div>
     <div class="sec"><div class="h"><h3>图片顺序</h3><span class="small muted">鼠标放到图上调整 · 第 1 张是封面，首图决定点击率</span></div>${imgRow}</div>
     ${r.comment ? `<div class="sec"><div class="h"><h3>置顶评论</h3><button type="button" class="ghost" data-do="copyComment" data-id="${r.id}">复制</button></div><div class="hint" style="white-space:pre-wrap;color:var(--ink)">${esc(r.comment)}</div><div class="small muted">发出去后在 App 里贴到评论区，长按置顶。</div></div>` : ''}`;
-  if (sched) return head + `<div class="notice">已排在 <b>${fmtDT(sched.at)}</b>，到点工作台会打开浏览器直接发。那个时间 <b>Mac 要开着、别合盖，工作台要开着</b>。${sched.markAi ? '会勾选「笔记含 AI 合成内容」。' : '不勾选 AI 合成内容。'}</div>
+  if (sched) return head + `<div class="notice">已排在 <b>${fmtDT(sched.at)}</b>，到点工作台会打开浏览器直接发。那个时间 <b>电脑要开着、别合盖，工作台要开着</b>。${sched.markAi ? '会勾选「笔记含 AI 合成内容」。' : '不勾选 AI 合成内容。'}</div>
     <div class="actions"><span></span><button type="button" class="danger" data-do="unsched" data-id="${esc(sched.id)}">取消排期</button></div>`;
   return head + `<div class="sec"><h3>发布时间</h3><div class="when">${T.map(t => `<button type="button" class="chip" data-do="when" data-k="${t.k}" aria-pressed="${UI.when === t.k}">${esc(t.l)}</button>`).join('')}
       <input type="datetime-local" id="whenAt" style="width:auto" ${UI.when === 'own' ? '' : 'hidden'} value="${esc(UI.whenAt || '')}"></div></div>
-    <div class="hint" style="line-height:1.8">到点由工作台打开浏览器直接发，不用小红书的定时发布。<b>那个时间 Mac 要开着、别合盖，工作台要开着</b>；有待发的稿时工作台会自动不让 Mac 睡眠。错过了不补发，会进「历史 › 没发出」，点「重新排期」就行。<br>${ri && ri.goods ? `挂商品：<b>${esc(ri.goods)}</b> · ` : ''}同号一天一篇、隔 2 小时 · 同一款和别的号隔 2 天 · 不扣点</div>
+    <div class="hint" style="line-height:1.8">到点由工作台打开浏览器直接发，不用小红书的定时发布。<b>那个时间 电脑要开着、别合盖，工作台要开着</b>；有待发的稿时工作台会自动不让电脑睡眠。错过了不补发，会进「历史 › 没发出」，点「重新排期」就行。<br>${ri && ri.goods ? `挂商品：<b>${esc(ri.goods)}</b> · ` : ''}同号一天一篇、隔 2 小时 · 同一款和别的号隔 2 天 · 不扣点</div>
     ${rh.ramping ? `<div class="hint warn">「${esc(a.name)}」起号第 ${rh.week} 周（${rh.stage}），这周最多排 ${rh.target} 篇，自动时间已经按这个排。${ri && ri.goods && rh.week <= 4 ? '<b>起号前 4 周建议先别挂商品</b>，到「产品图 › 照片和资料」把挂商品清空再发。' : ''}</div>` : ''}
     ${a.realFirst && !allReal(imgs) ? '<div class="hint warn">这个号是测评人设，<b>测评图建议用自己拍的实拍图</b>：用 AI 图说「我试穿了」属于虚假测评，被平台查到会限流甚至封号。</div>' : ''}
     <label class="row small" style="flex-wrap:nowrap;align-items:flex-start;gap:8px"><input type="checkbox" id="markAi" ${UI.markAi ? 'checked' : ''} style="width:auto"> 标注「笔记含 AI 合成内容」<span class="muted">（可关；小红书要求 AI 生成的图要声明，不标有被限流的风险${allReal(imgs) ? '。这篇全是实拍图，默认不标' : ''}）</span></label>
@@ -979,12 +979,12 @@ async function approveFlow(r) {
   }
   const when = at ? (at === 'auto' ? w.show : at) : 0, markAi = UI.markAi;
   openDlg(`<h2>确认发布「${esc(r.title)}」</h2>
-    <div class="notice">${when ? `排在 <b>${fmtDT(when)}</b>，到点工作台打开浏览器直接发。<b>那时 Mac 要开着、工作台要开着。</b>` : '<b>现在就发</b>，浏览器会自己操作，1–2 分钟。'}
+    <div class="notice">${when ? `排在 <b>${fmtDT(when)}</b>，到点工作台打开浏览器直接发。<b>那时 电脑要开着、工作台要开着。</b>` : '<b>现在就发</b>，浏览器会自己操作，1–2 分钟。'}
       <br>${markAi ? '勾选' : '不勾选'}「笔记含 AI 合成内容」${quote.goods ? `；挂商品：${esc(quote.goods)}` : ''}；浏览器${(quote.config || {}).browser_visible ? '会弹出窗口，发完自动关' : '在后台运行'}。不扣任何点数。</div>` + btns('确认'),
   async () => {
     const j = await api('/api/publish', {account: UI.acc, id: r.id, at, quote: quote.quote, markAi}, true);
     if (j && j.ok === false) { toast(j.error || '排期失败'); return !/2 小时/.test(j.error || ''); }
-    if (j) toast(!at ? '开始发布，进度在「排期日历」里看' : '已排期 ' + fmtDT(j.entry.at) + '，到点 Mac 要开着');
+    if (j) toast(!at ? '开始发布，进度在「排期日历」里看' : '已排期 ' + fmtDT(j.entry.at) + '，到点 电脑要开着');
     return true;
   });
 }
@@ -1029,7 +1029,7 @@ function calPage() {
     <div class="week">${days}</div>
     <div class="hint" style="margin-top:14px">${[UI.week === 0 && empty ? `本周还空 ${empty} 天，建议每天 1 篇，女装流量高峰是中午 12 点前后和晚上 7–10 点。` : '',
       n ? `${fmtD(n.at)}「${esc(n.name)}」还有 ${n.days} 天，相关内容建议 ${fmtD(n.postBy)} 前开始发。` : ''].filter(Boolean).join(' ') || '这一周都排上了。'}</div>
-    ${pend ? `<div class="notice" style="margin-top:10px">有 ${pend} 篇待发：到点工作台开浏览器直接发，Mac 要开着、别合盖。${D.awake ? '现在已经不让 Mac 自己睡眠了。' : ''}</div>` : ''}`;
+    ${pend ? `<div class="notice" style="margin-top:10px">有 ${pend} 篇待发：到点工作台开浏览器直接发，电脑要开着、别合盖。${D.awake ? '现在已经不让电脑自己睡眠了。' : ''}</div>` : ''}`;
 }
 const personaOpts = (cur, blank) => `<option value="">${blank}</option>` + Object.entries(D.personas || {}).map(([k, p]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
 function loginPage() {
@@ -1273,7 +1273,7 @@ function dlgSettings() {
     <div class="small muted wide">账号的增删改名和扫码在「发布 › 账号登录」；文案口吻在「文案 › 文案设定」。</div>
     <details class="f wide"><summary class="small muted">高级（一般不用动）</summary><div class="form" style="margin-top:8px">
       <label class="f wide">锁图工作台文件夹（xhs-lock-studio）<input id="s-lock" value="${esc(s.lock_studio_path)}" placeholder="~/Documents/xhs-lock-studio"></label>
-      <label class="f wide">codex 命令路径（留空自动找）<input id="s-cx" value="${esc(s.codex_path)}" placeholder="/Applications/Codex.app/Contents/Resources/codex"></label>
+      <label class="f wide">codex 命令路径（留空自动找）<input id="s-cx" value="${esc(s.codex_path)}" placeholder="${D.os === 'windows' ? 'C:\\Users\\你\\AppData\\Roaming\\npm\\codex.cmd' : '/Applications/Codex.app/Contents/Resources/codex'}"></label>
       <label class="f wide">codex 参数<input id="s-args" value="${esc(s.codex_args)}"></label>
       <label class="f">到点没发出去，超过多久就不补发（分钟）<input id="s-grace" type="number" min="10" value="${esc(s.late_grace_min)}"></label></div></details></div>` + btns('保存'),
   async f => !!(await api('/api/settings', {lock_studio_path: f.querySelector('#s-lock').value.trim(), codex_path: f.querySelector('#s-cx').value.trim(), codex_args: f.querySelector('#s-args').value.trim(), late_grace_min: Number(f.querySelector('#s-grace').value) || 30, mark_ai: f.querySelector('#s-ai').checked, xhs_headless: f.querySelector('#s-hl').checked})));
@@ -1401,7 +1401,7 @@ const HELP = {
   img: ['设为封面 / 挪位置 / 不用这张', '调整发布时图片的顺序，第 1 张是封面。', 'pub.queue'],
   when: ['选发布时间', '选一个推荐时间，或者自己定。到点工作台开浏览器直接发。', 'pub.queue'],
   tryFill: ['只填不发试一次', '打开发布页把标题、正文、图片都填好，但不点发布，给你截图看对不对。第一次发之前一定试一次。', 'pub.queue'],
-  approve: ['确认排期', '定好时间。到点工作台自己发，Mac 要开着、工作台要开着。', 'pub.queue'],
+  approve: ['确认排期', '定好时间。到点工作台自己发，电脑要开着、工作台要开着。', 'pub.queue'],
   backToCopy: ['文案还要改', '退回「审稿」再改。', 'pub.queue'],
   copyComment: ['复制置顶评论', '复制好，发出去后到 App 里贴到评论区并置顶。', 'pub.queue'],
   package: ['导出发布包', '把图和文案导出到一个文件夹，自己在 App 里手动发。', 'pub.queue'],
@@ -1426,7 +1426,7 @@ const SPECIAL = {aiBtn: ['AI 任务', '正在跑的 AI 任务。点开看进度�
 const FAQ = [
   ['发布弹验证码 / 账号异常', '先到「发布 › 排期日历」点「全部暂停」，到小红书 App 或浏览器里把验证做完，再点「恢复发布」。', 'pub.cal'],
   ['显示小红书未登录 / 登录过期', '到「发布 › 账号登录」点「扫码登录」，用手机扫码后点「我扫好了」。', 'pub.login'],
-  ['到点没发出去', 'Mac 要开机、别合盖、工作台要开着。错过 30 分钟以上不补发，到「历史记录 › 没发出 / 驳回」点「重新排期」。', 'hist.fail'],
+  ['到点没发出去', '电脑要开机、别合盖、工作台要开着。错过 30 分钟以上不补发，到「历史记录 › 没发出 / 驳回」点「重新排期」。', 'hist.fail'],
   ['第一次发之前怎么检查', '在「发布 › 待发布」点「只填不发试一次」，看截图没问题再「确认排期」。', 'pub.queue'],
   ['怎么换封面 / 调图片顺序', '在「发布 › 待发布」里，图片下面点「设为封面」或左右箭头。', 'pub.queue'],
   ['出图人脸不对 / 模特不像', '到「产品图 › 模特和参考图库」补齐模特的正脸、左侧脸、右侧脸、全身 4 张。', 'img.lib'],
@@ -1436,6 +1436,8 @@ const FAQ = [
   ['加一个新号（街拍号、测评号）', '到「发布 › 账号登录」最下面写名字、选人设，点「加一个号」。', 'pub.login'],
   ['AI 标注要不要勾', '默认勾上；全是实拍图的可以不勾。在「发布 › 待发布」确认排期前改。', 'pub.queue'],
   ['文案口吻不对', '到「文案 › 文案设定」改账号定位和口吻，右边可以试写一篇看看。', 'copy.set'],
+  ['Windows 电脑怎么不让它睡着', '设置 › 系统 › 电源，「接通电源后睡眠」选「从不」，笔记本「合上盖子时」选「不采取任何操作」。有待发的稿时工作台也会让电脑别自己睡。', ''],
+  ['Windows 上怎么打开 / 关掉工作台', '让 Codex 运行 .codex\\skills\\xhs-autopilot\\panel 里的 start.py / stop.py，或者直接双击那里的 start.cmd / stop.cmd。', ''],
 ];
 const pageName = k => { if (!k) return ''; const [t, s] = k.split('.'); const T = TABS.find(x => x[0] === t); const S = (subsOf(t) || []).find(x => x[0] === s); return T ? `${T[2]}${S ? ' › ' + S[1].replace(/（\d+）$/, '') : ''}` : ''; };
 
