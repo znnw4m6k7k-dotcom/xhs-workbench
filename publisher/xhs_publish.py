@@ -182,6 +182,26 @@ def publish_image(
 # 通用步骤（以下照搬原版，改动处标了「改：」）
 # ──────────────────────────────────────────────────────────────────────────────
 
+# 平台拦人的几种情况：工作台看到「已停下」开头的错误，就把所有号的发布都暂停
+BLOCK_URL = ("captcha", "/verify", "website-login/error")
+BLOCK_TEXT = (("请完成安全验证", "验证码"), ("滑块验证", "验证码"), ("请输入验证码", "验证码"), ("拖动滑块", "验证码"),
+              ("操作频繁", "操作频繁"), ("访问频繁", "操作频繁"), ("账号异常", "账号异常"), ("账号已被", "账号异常"))
+
+
+def _check_blocked(page) -> None:
+    """页面跳到验证码 / 安全验证，或者弹出操作频繁、账号异常：截图后停下，不再往下点。"""
+    url = page.url or ""
+    if any(h in url for h in BLOCK_URL):
+        raise RuntimeError("已停下：遇到验证码（截图：%s）" % _shot(page, "blocked"))
+    try:
+        text = page.inner_text("body", timeout=3_000)
+    except Exception:
+        return
+    for word, what in BLOCK_TEXT:
+        if word in text:
+            raise RuntimeError("已停下：%s，页面上写着「%s」（截图：%s）" % (what, word, _shot(page, "blocked")))
+
+
 def _open_publish_page(page, tab: str) -> None:
     """打开发布页并切换到对应 tab。复刻 NewPublishImageAction/NewPublishVideoAction。"""
     SHOT_DIR.mkdir(parents=True, exist_ok=True)
@@ -190,6 +210,7 @@ def _open_publish_page(page, tab: str) -> None:
     # 改：被跳到登录页时直接说清楚，不去等一个永远出不来的发布框
     if "/login" in page.url:
         raise RuntimeError("小红书登录已失效，请先运行 login 扫码")
+    _check_blocked(page)
     try:
         page.wait_for_load_state("domcontentloaded", timeout=10_000)
     except Exception:
@@ -538,6 +559,7 @@ def _submit_publish(
     ok = _wait_publish_success(page)
     shot = _shot(page, "after_publish" if ok else "publish_unconfirmed")
     if not ok:
+        _check_blocked(page)
         raise RuntimeError("点了发布，但 30 秒内没看到「发布成功」，请到创作中心「笔记管理」确认是否发出（截图：%s）" % shot)
     return {"tags": tag_report, "shot": shot}
 

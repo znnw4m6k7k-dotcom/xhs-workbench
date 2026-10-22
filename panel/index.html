@@ -441,9 +441,10 @@ const weekStart = off => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDa
 // 一款多号：每批图记着是给哪个号出的，只看这个号的（老数据没标号的大家都能用）
 const myJobs = it => (it.lockJobs || []).filter(j => !j.account || String(j.account) === String(UI.acc));
 const lastImages = it => (myJobs(it).find(j => j.images.length) || {images: []}).images;
-const batches = it => myJobs(it).filter(j => j.images.length);
+// 返工出来的图（评 C 的自动重出一次）算在原来那一批里
+const batches = it => myJobs(it).filter(j => j.images.length && !(j.recipe || {}).reworkOf);
 const batchOf = it => { const bs = batches(it); return bs.find(j => j.name === (UI.batch || {})[it.id]) || bs[0]; };
-const batchImages = it => (batchOf(it) || {images: []}).images;
+const batchImages = it => { const b = batchOf(it); return b ? b.images.concat(...myJobs(it).filter(j => (j.recipe || {}).reworkOf === b.name).map(j => j.images)) : []; };
 function batchLabel(j, i) {
   const r = j.recipe || {}, t = r.createdAt || 0;
   return `第 ${i} 批 · ${t ? fmtDT(t) + ' · ' : ''}${[D.styles[r.style], castText(r)].filter(Boolean).map(esc).join(' · ') || esc(j.name)} · ${j.images.length} 张`;
@@ -455,7 +456,7 @@ function batchSel(it) {
 }
 function imgTile(it, p, sel, withOps) {
   const k = sel.indexOf(p), gr = (it.grades || {})[p], bad = isBad(it, p);
-  const tile = `<button type="button" class="ref" data-do="pickImg" data-p="${esc(p)}" aria-pressed="${k >= 0}" ${bad ? 'disabled title="出图检查没通过，不能用"' : ''}><img class="th" src="${img(p)}" alt="">${k >= 0 ? `<span class="n">${k === 0 ? '封面' : k + 1}</span>` : ''}<span class="g">${gradePill(gr) || (isReal(it, p) ? '<span class="pill">实拍</span>' : '')}</span><span class="l">${esc(gr && gr.note ? gr.note : base(p))}</span></button>`;
+  const tile = `<button type="button" class="ref" data-do="pickImg" data-p="${esc(p)}" aria-pressed="${k >= 0}" ${bad ? 'disabled title="出图检查没通过，不能用"' : ''}><img class="th" src="${img(p)}" alt="">${k >= 0 ? `<span class="n">${k === 0 ? '封面' : k + 1}</span>` : ''}<span class="g">${gradePill(gr) || (isReal(it, p) ? '<span class="pill">实拍</span>' : '')}${(D.colorFlags || {})[p] && !bad ? ' <span class="pill warn" title="成品中间的颜色和产品正面照差得比较多，可能是光线，也可能衣服颜色偏了">颜色?</span>' : ''}</span><span class="l">${esc(gr && gr.note ? gr.note : base(p))}</span></button>`;
   if (!withOps || isReal(it, p)) return tile;
   return `<div class="refwrap">${tile}<div class="tileops"><button type="button" class="link" data-do="imgInfo" data-id="${esc(it.id)}" data-p="${esc(p)}">参数</button><button type="button" class="link" style="color:var(--bad)" data-do="imgReject" data-id="${esc(it.id)}" data-p="${esc(p)}">驳回</button></div></div>`;
 }
@@ -516,6 +517,8 @@ function render() {
   $('#ptitle').textContent = subName;
   $('#pdesc').textContent = DESC[UI.tab + '.' + UI.sub[UI.tab]] || '';
   const h = [];
+  const bk = D.brake || {};
+  if (bk.on) h.push(`<div class="notice bad row between" style="flex-wrap:nowrap;gap:12px"><span><b>所有号的发布已暂停</b>（${fmtDT(bk.at)}）：${bk.account ? `「${esc((D.accounts.find(a => String(a.id) === String(bk.account)) || {}).name || bk.account)}」` : ''}${esc(bk.reason)}。${{验证码: '到小红书 App 或浏览器里把验证过了，', 登录失效: '到「发布 › 账号和登录」重新扫码，', 发布结果不确定: '先到创作中心「笔记管理」看看刚才那篇发出去没有，'}[bk.reason] || '先处理好，'}再点右边恢复。暂停期间到点的稿不会发，排到以后的照常保留。</span><button type="button" class="primary" data-do="resumeBrake">恢复发布</button></div>`);
   if (D.demo) h.push('<div class="notice demo"><b>演示模式</b>：数据是假的，不会调用 Codex，也不会真的发帖。</div>');
   if (!D.lock.ok) h.push(`<div class="notice bad"><b>找不到锁图工作台</b>（${esc(D.lock.path)}）。出图用不了，到“设置 › 高级”里填 xhs-lock-studio 文件夹的位置。</div>`);
   if (!D.publisherOk) h.push('<div class="notice bad"><b>找不到发布脚本</b>（xhs-autopilot/publisher/xhs_publish.py）。发布用不了。</div>');
@@ -572,7 +575,13 @@ function infoPage(it) {
     : '<div class="small muted">材质手感和痛点都填好后，AI 会自动给这款出 5 条选题，放进「文案 › 选题库」。</div>';
   const fld = (k, l, ph, wide) => `<label class="f ${wide ? 'wide' : ''}">${l}<input id="if-${k}" value="${esc(it[k] || '')}" placeholder="${esc(ph)}"></label>`;
   const reals = (it.realPhotos || []).map(p => `<div class="ref refbox"><img class="th" src="${img(p)}" alt=""><button type="button" class="x ghost danger" data-do="delReal" data-id="${esc(it.id)}" data-p="${esc(p)}" aria-label="移除">×</button><span class="l">${esc(stem(p))}</span></div>`).join('');
-  return `<div class="sec"><div class="h"><h3>产品照片</h3><span class="small muted">纯色背景平铺或挂拍；照片越全，出图越不走样</span></div><div class="slots">${slots}</div>${notes}</div>
+  const pieces = it.pieces || [];
+  const pslot = (pc, k, l) => { const p = ((it.piecePhotos || {})[pc.id] || {})[k]; return `<div class="slot"><button type="button" class="drop" data-slot="${pc.id}_${k}" data-id="${esc(it.id)}" title="点击或把照片拖进来">${p ? `<img src="${img(p)}" alt="${l}">` : '＋ 拖进来'}</button>
+      <span class="cap"><b>${l}</b>${p ? '<span class="pill good">✓</span>' : k === 'front' ? '<span class="pill bad">必须</span>' : ''}</span></div>`; };
+  const suit = pieces.map(pc => `<div class="sec"><div class="h"><h3>套装 · ${esc(pc.name)}</h3><div class="row"><button type="button" class="link" data-do="renamePiece" data-id="${esc(it.id)}" data-piece="${pc.id}">改名</button><button type="button" class="link" style="color:var(--bad)" data-do="delPiece" data-id="${esc(it.id)}" data-piece="${pc.id}">删掉这件</button></div></div>
+      <div class="slots">${pslot(pc, 'front', '正面')}${pslot(pc, 'back', '背面')}${pslot(pc, 'detail', '细节')}</div></div>`).join('');
+  return `<div class="sec"><div class="h"><h3>${pieces.length ? `套装 · ${esc(it.mainPiece || '主件')} <button type="button" class="link" data-do="renameMain" data-id="${esc(it.id)}">改名</button>` : '产品照片'}</h3><span class="small muted">纯色背景平铺或挂拍；照片越全，出图越不走样</span></div><div class="slots">${slots}</div>${notes}</div>
+    ${suit}<div class="row small"><button type="button" class="ghost" data-do="addPiece" data-id="${esc(it.id)}" ${pieces.length >= 3 ? 'disabled' : ''}>＋ 这是套装，再加一件</button><span class="muted">${pieces.length ? `一套 ${pieces.length + 1} 件。生图一次只能附 4 张产品图，会先附每件的正面，再补细节。加减件后要重写档案。` : '上衣配半裙、西装配裤子这种成套卖的，每件单独放照片。'}</span></div>
     <div class="sec"><div class="h"><h3>实拍图（可不放）</h3><span class="small muted">自己拍的上身、挂拍、平铺、手摸面料；不过 AI，写文案时和 AI 图一起挑</span></div>
       ${reals ? `<div class="refs">${reals}</div>` : ''}<div class="row"><button type="button" data-do="addReal" data-id="${esc(it.id)}">＋ 加实拍图</button></div></div>
     <div class="sec"><div class="h"><h3>资料</h3><span class="small muted">文案里的事实只从这里取，AI 不会自己编</span></div>${aiNote}
@@ -586,8 +595,10 @@ function infoPage(it) {
 const chkRow = (c, i, ok) => `<div class="chk ${c.unsure && !ok ? 'unsure' : ''}">${c.unsure && !ok ? '<input type="checkbox" aria-label="已对着实物核对">' : '<span class="sp"></span>'}
   <select aria-label="级别"><option ${c.level === '必过' ? 'selected' : ''}>必过</option><option ${c.level === '尽量' ? 'selected' : ''}>尽量</option></select>
   <input value="${esc(c.text)}" aria-label="检查要点 ${i + 1}"><button type="button" class="ghost danger" data-do="delCheck" aria-label="删除">×</button></div>`;
+// 出图时只列这个号能用的场景组（在「模特和参考图库」里给每组勾号；没勾就是所有号都能用）
+const styleFor = (k, aid = UI.acc) => { const l = (D.styleAccounts || {})[k] || []; return !l.length || l.includes(String(aid)); };
 const styleOpts = () => [['mirror', '对镜自拍', '手机挡脸 · 试衣镜 / 电梯镜 / 卧室镜'], ['street', '街拍', '走路 · 回头 · 过马路 · 靠墙']]
-  .concat((D.styleGroups || []).map(g => [g.id, g.name, g.note || '自己加的一组'])).concat([['own', '自己挑', '从全部参考图里选']]);
+  .concat((D.styleGroups || []).map(g => [g.id, g.name, g.note || '自己加的一组'])).filter(x => styleFor(x[0])).concat([['own', '自己挑', '从全部参考图里选']]);
 const FACE_NAME = {hide: '不露脸', model: '换成我们的模特', ai: 'AI 脸', none: '没有人的静物'};
 function initPick(it, style) {
   const lp = D.lastPick || {}, refs = D.lock.refs, models = D.lock.models, mine = (lp.byAcc || {})[String(UI.acc)];
@@ -681,7 +692,11 @@ function resultPage(it) {
   if (!W.imgs.length) W.imgs = defaultImgs(it);
   const n = (cur ? cur.images : []).reduce((o, p) => { const x = (g[p] || {}).grade || '?'; o[x] = (o[x] || 0) + 1; return o; }, {});
   const rej = cur ? Object.entries(D.imgRejected || {}).filter(([p]) => p.startsWith(cur.dir + '/')) : [];
-  return `${batchSel(it)}<div class="hint">${cur ? `这批出了 ${cur.images.length} 张：A ${n.A || 0} · B ${n.B || 0}${n.C ? ` · C ${n.C}（灰掉的不能用）` : ''}${cur.rejected ? ` · ${cur.rejected} 张没通过已放进 rejected` : ''}。A 能直接用；B 衣服对、小地方请放大看。<b>一篇只能用同一批的图</b>，不满意的点图下面「驳回」。` : '这款还没出 AI 图，下面是实拍图。'}${(it.realPhotos || []).length ? `实拍图 ${it.realPhotos.length} 张，不过 AI，可以和 AI 图混着用。` : ''}点图选择，<b>第 1 张是封面</b>。</div>
+  const rw = cur ? myJobs(it).filter(j => (j.recipe || {}).reworkOf === cur.name) : [];
+  const rwRun = cur && activeJobs().some(j => j.kind === 'lock' && j.params && j.params.reworkOf === cur.name);
+  const nColor = (cur ? batchImages(it) : []).filter(p => (D.colorFlags || {})[p] && !isBad(it, p)).length;
+  return `${batchSel(it)}${rwRun ? busyHint('这批有评 C 的图，正在自动返工一次（只重出那几张），好了接在这批后面。') : rw.length ? `<div class="hint">评 C 的已经自动返工过一次，返工的 ${rw.reduce((n, j) => n + j.images.length, 0)} 张接在这批后面。还不行就点「驳回」或换参考图重出。</div>` : ''}
+    ${nColor ? `<div class="hint warn">有 ${nColor} 张标了「颜色?」：成品中间的颜色和产品正面照差得比较多。可能只是光线，放大和实物对一下再用。</div>` : ''}<div class="hint">${cur ? `这批出了 ${cur.images.length} 张：A ${n.A || 0} · B ${n.B || 0}${n.C ? ` · C ${n.C}（灰掉的不能用）` : ''}${cur.rejected ? ` · ${cur.rejected} 张没通过已放进 rejected` : ''}。A 能直接用；B 衣服对、小地方请放大看。<b>一篇只能用同一批的图</b>，不满意的点图下面「驳回」。` : '这款还没出 AI 图，下面是实拍图。'}${(it.realPhotos || []).length ? `实拍图 ${it.realPhotos.length} 张，不过 AI，可以和 AI 图混着用。` : ''}点图选择，<b>第 1 张是封面</b>。</div>
     <div class="refs">${pool.map(p => imgTile(it, p, W.imgs, true)).join('')}</div>
     ${rej.length ? `<details><summary class="small">这批驳回了 ${rej.length} 张</summary><div class="stack" style="gap:6px;margin-top:8px">${rej.map(([p, x]) => `<div class="row small" style="flex-wrap:nowrap"><img src="${img(x.to)}" alt="" style="width:36px;height:48px;object-fit:cover;border-radius:6px"><span>${esc(base(p))} · ${esc(x.why)} · ${fmtDT(x.at)}</span><button type="button" class="ghost" data-do="imgRestore" data-p="${esc(p)}">恢复</button></div>`).join('')}</div></details>` : ''}
     <div class="row">${addReal}<span class="small muted">上身、挂拍、平铺、手摸面料都行；要删在「照片和资料」里删</span></div>
@@ -716,6 +731,7 @@ function libPage() {
     <div class="row between"><span class="small muted">每个号的拍法不一样，可以自己加一组，比如「工作室静物」「书桌房间」「灰棚 lookbook」。</span><button type="button" data-do="newGroup">＋ 新建一组风格</button></div>
     ${groups.map(([k, name, list]) => `<div class="panel pad stack"><div class="row between"><h2>参考图 · ${esc(name)} <span class="small muted">${list.length} 张</span></h2>
         <div class="row">${own(k) ? `<button type="button" class="ghost" data-do="editGroup" data-k="${esc(k)}">改名和说明</button><button type="button" class="ghost danger" data-do="delGroup" data-k="${esc(k)}">删掉这组</button>` : ''}<button type="button" data-do="uploadRef" data-style="${esc(k)}">＋ 上传到「${esc(name)}」</button></div></div>
+      ${k !== 'other' && D.accounts.length > 1 ? `<div class="row small" style="gap:12px"><span class="muted">哪些号能用：</span>${D.accounts.map(a => `<label class="row" style="gap:4px;flex-wrap:nowrap"><input type="checkbox" data-sacc="${esc(k)}" value="${esc(a.id)}" ${((D.styleAccounts || {})[k] || []).includes(String(a.id)) ? 'checked' : ''} style="width:auto">${esc(a.name)}</label>`).join('')}<span class="muted">${((D.styleAccounts || {})[k] || []).length ? '' : '（都没勾 = 所有号都能用）'}</span></div>` : ''}
       ${k === 'mirror' ? '<div class="small muted">刷到想模仿的对镜自拍就存进来：试衣镜、电梯镜、卧室全身镜，手机挡脸的最好用。</div>' : k === 'street' ? '<div class="small muted">街角走路、回头、过马路、靠墙这类抓拍感的街拍。竖图最好，横图会被裁掉两边。</div>' : own(k) ? `<div class="small muted">给 AI 的说明：${esc(own(k).note || '（没写，AI 会照着这组图的场景和光线来）')}</div>` : ''}
       <div class="refs">${list.map(r => `<div class="ref refbox"><img class="th" src="${img(r)}" alt=""><button type="button" class="x ghost danger" data-do="delRef" data-ref="${esc(r)}" aria-label="移除">×</button>
         <select data-refstyle="${esc(r)}" aria-label="风格">${Object.keys(D.styles).map(s => `<option value="${s}" ${s === k ? 'selected' : ''}>${esc(D.styles[s])}</option>`).join('')}</select><span class="l">${esc(stem(r))}</span></div>`).join('') || '<div class="empty">这组还没有图。</div>'}</div></div>`).join('')}
@@ -951,7 +967,7 @@ function calMatrix() {
 }
 function calPage() {
   const toggle = D.accounts.length > 1 ? `<div class="row"><button type="button" class="chip" data-do="calMode" data-k="one" aria-pressed="${!UI.calAll}">只看这个号</button><button type="button" class="chip" data-do="calMode" data-k="all" aria-pressed="${!!UI.calAll}">全部号（矩阵）</button></div>` : '';
-  const nav = `<div class="row"><button class="ghost" data-do="wk" data-d="-1" type="button">上一周</button><button class="ghost" data-do="wk" data-d="0" type="button">本周</button><button class="ghost" data-do="wk" data-d="1" type="button">下一周</button></div>`;
+  const nav = `<div class="row">${(D.brake || {}).on ? '' : '<button class="ghost danger" data-do="pauseAll" type="button" title="所有号都先不发">全部暂停</button>'}<button class="ghost" data-do="wk" data-d="-1" type="button">上一周</button><button class="ghost" data-do="wk" data-d="0" type="button">本周</button><button class="ghost" data-do="wk" data-d="1" type="button">下一周</button></div>`;
   if (UI.calAll && D.accounts.length > 1) { const ws = weekStart(UI.week); return `<div class="row between" style="margin-bottom:12px"><div class="row"><h2>${UI.week === 0 ? '本周' : `${fmtD(ws)} – ${fmtD(ws + 6 * 864e5)}`}</h2>${toggle}</div>${nav}</div>${calMatrix()}`; }
   const S = D.schedule.filter(s => String(s.account) === String(UI.acc));
   const ws = weekStart(UI.week);
@@ -1262,6 +1278,10 @@ document.addEventListener('change', e => {
   if (t.id === 'whenAt') UI.whenAt = t.value;
   if (t.id === 'markAi') UI.markAi = t.checked;
   if (t.id === 'wItem') { W.item = t.value; W.imgs = []; W.topic = null; t.blur(); render(); }
+  if (t.dataset && t.dataset.sacc) {
+    const k = t.dataset.sacc, accounts = Array.from(document.querySelectorAll(`[data-sacc="${CSS.escape(k)}"]:checked`)).map(x => x.value);
+    api('/api/style/group', {action: 'accounts', id: k, accounts}).then(j => j && toast(accounts.length ? `「${D.styles[k]}」只给勾上的号用` : `「${D.styles[k]}」所有号都能用`));
+  }
   if (t.id === 'batchSel') { UI.batch = UI.batch || {}; UI.batch[t.dataset.id] = t.value; W.imgs = []; t.blur(); render(); }
   if (t.dataset && t.dataset.acast) { const c = parseCast(t.value); api('/api/account/cast', Object.assign({id: t.dataset.acast}, c || {face: ''})).then(j => j && toast(c ? '已设好，之后上新自动带上' : '已改成不固定')); t.blur(); }
   if (t.id === 'wTopic') W.topic = t.value;
@@ -1314,6 +1334,19 @@ document.addEventListener('click', async e => {
     case 'pickLogo': $('#logoFile').click(); break;
     case 'style': { const cur = D.items.find(i => i.id === UI.item); if (cur) initPick(cur, b.dataset.k); render(); break; }
     case 'pickModel': PICK.model = b.dataset.name; render(); break;
+    case 'addPiece': case 'renamePiece': case 'renameMain': {
+      const add = b.dataset.do === 'addPiece', main = b.dataset.do === 'renameMain';
+      const cur = main ? (it.mainPiece || '') : add ? '' : ((it.pieces || []).find(p => p.id === b.dataset.piece) || {}).name;
+      openDlg(`<h2>${add ? '套装再加一件' : '改名'}</h2><label class="f">这件是什么<input id="pcName" value="${esc(cur)}" placeholder="${main ? '例：西装外套' : '例：半裙'}" maxlength="10"></label>` + btns(add ? '加上' : '保存'), async () => {
+        const name = $('#pcName').value.trim(); if (!name) { toast('写个名字'); return false; }
+        const j = await api('/api/item/piece', {id, action: add ? 'add' : main ? 'main' : 'rename', piece: b.dataset.piece, name});
+        if (j && add) toast('加好了，把这件的正面、背面、细节照放进来，再重写一次档案');
+        return !!j;
+      });
+      break; }
+    case 'delPiece': dlgConfirm('删掉这一件？', '这件的照片会挪进原图目录的 _removed 文件夹。删完要重写档案。', '删掉', () => api('/api/item/piece', {id, action: 'delete', piece: b.dataset.piece})); break;
+    case 'resumeBrake': dlgConfirm('恢复所有号的发布？', '确认问题处理好了。错过时间超过 30 分钟的稿不会补发，会进「历史 › 没发出」，可以重新排期。', '恢复发布', async () => { if (await api('/api/brake', {action: 'resume'})) toast('已恢复，到点的稿会照常发'); }); break;
+    case 'pauseAll': dlgConfirm('所有号都先暂停发布？', '到点的稿不会发，直到你点「恢复发布」。', '全部暂停', async () => { if (await api('/api/brake', {action: 'pause'})) toast('已暂停所有号的发布'); }); break;
     case 'unlockCast': {
       const c = castOf(id);
       openDlg(`<h2>解锁「${esc(it.name)}」的模特</h2><p class="small muted" style="margin:0">现在在「${esc((acc() || {}).name || '')}」固定用 ${esc(castText(c))}。解锁后下次出图重新选，选好又会固定下来。会留一条记录。</p>

@@ -1000,5 +1000,154 @@ class PanelTests(unittest.TestCase):
         self.assertEqual(self.entry(e["id"])["status"], "cancelled")
 
 
+    # ---------------------------------------------------------------- 第二批：统一刹车、场景按号、套装、自动比对
+    def test_100_captcha_pauses_all_accounts(self):
+        self.m.r_account({"name": "副号"})
+        (self.m.STUDIO / "images" / "03.png").write_bytes(self.m.PNG_1PX)
+        e = self.schedule()
+        rid2 = self.m.add_drafts("2", "", [{"title": "副号的稿", "body": "副号演示正文。", "tags": ["演示"], "images": [str(self.m.STUDIO / "images" / "03.png")]}], "test")[0]
+        self.m.r_review({"account": "2", "id": rid2, "action": "ready"})
+        self.m.set_login("2", True)
+        q = self.m.r_publish_preview({"account": "2", "id": rid2})["quote"]
+        e2 = self.m.r_publish({"account": "2", "id": rid2, "quote": q, "at": self.m.now_ms() + 9000000})["entry"]
+        with patch.object(self.m, "xhs_cli", return_value=(False, None, "已停下：验证码（截图：/tmp/x.png）")):
+            self.m.publish_one(e)
+        b = self.m.load_state()["brake"]
+        self.assertTrue(b["on"])
+        self.assertEqual((b["account"], b["reason"]), ("1", "验证码"))
+        self.assertEqual(self.entry(e["id"])["status"], "failed")
+        # 刹车时别的号到点也不发
+        st = self.m.load_state()
+        for x in st["schedule"]:
+            x["at"] = self.m.now_ms() - 1000
+        self.m.save_state(st)
+        with patch.object(self.m, "xhs_cli") as cli:
+            self.m.publish_one(self.entry(e2["id"]))
+            cli.assert_not_called()
+        self.assertEqual(self.entry(e2["id"])["status"], "pending")
+        # 立即发被拦，排以后可以
+        rid3 = self.m.add_drafts("1", "", [{"title": "第三篇", "body": "演示正文。", "tags": ["演示"], "images": [str(self.image)]}], "test")[0]
+        q3 = self.quote(rid3)
+        with self.assertRaises(ValueError):
+            self.m.r_publish({"account": "1", "id": rid3, "quote": q3})
+        self.m.r_brake({"action": "resume"})
+        self.assertFalse(self.m.load_state()["brake"]["on"])
+        self.assertEqual(self.m.api_state()["brakeLog"][-1]["reason"], "恢复发布")
+
+    def test_101_brake_reasons(self):
+        r = self.m.brake_reason
+        self.assertEqual(r("已停下：操作频繁，页面上写着「操作频繁」（截图：x）"), "操作频繁")
+        self.assertEqual(r("小红书登录已失效，请先运行 login 扫码"), "登录失效")
+        self.assertEqual(r("点了发布，但 30 秒内没看到「发布成功」"), "发布结果不确定")
+        self.assertEqual(r("上传第 1 张图片失败"), "")
+        e = self.schedule()
+        with patch.object(self.m, "xhs_cli", return_value=(False, None, "上传第 1 张图片失败: timeout")):
+            self.m.publish_one(e)
+        self.assertFalse((self.m.load_state().get("brake") or {}).get("on"))
+        self.m.r_brake({"action": "pause"})
+        self.assertEqual(self.m.load_state()["brake"]["reason"], "手动暂停")
+
+    def test_102_scene_groups_per_account(self):
+        root, it = self.lock_setup()
+        self.m.r_account({"name": "the rumah"})
+        g = self.m.r_style_group({"action": "add", "name": "灰棚 lookbook", "note": "灰色影棚"})["group"]
+        self.m.r_style_group({"action": "accounts", "id": g["id"], "accounts": ["2"]})
+        self.m.r_style_group({"action": "accounts", "id": "mirror", "accounts": ["1"]})
+        self.assertEqual(self.m.api_state()["styleAccounts"], {g["id"]: ["2"], "mirror": ["1"]})
+        with self.assertRaises(ValueError):
+            self.m.r_style_group({"action": "accounts", "id": "other", "accounts": []})
+        with self.assertRaises(ValueError):
+            self.m.r_style_group({"action": "accounts", "id": g["id"], "accounts": ["9"]})
+        self.m.r_style_group({"action": "delete", "id": g["id"]})
+        self.assertNotIn(g["id"], self.m.api_state()["styleAccounts"])
+
+    def test_103_suit_pieces_photos_and_job(self):
+        root, it = self.lock_setup()
+        with self.assertRaises(ValueError):
+            self.m.r_item_photo({"id": it["id"], "slot": "p2_front", "data": self.b64(self.image.read_bytes() * 3)})
+        self.m.r_item_piece({"id": it["id"], "action": "add", "name": "半裙"})
+        self.m.r_item_piece({"id": it["id"], "action": "main", "name": "西装外套"})
+        for k in ("front", "detail", "back"):
+            self.m.r_item_photo({"id": it["id"], "slot": "p2_" + k, "data": self.b64(self.image.read_bytes() * 3)})
+        self.m.r_item_save(dict(self.m.find_item(self.m.load_state(), it["id"]), colors="黑"))   # 保存资料不丢件
+        v = next(x for x in self.m.api_state()["items"] if x["id"] == it["id"])
+        self.assertEqual([p["name"] for p in v["pieces"]], ["半裙"])
+        self.assertTrue(v["piecePhotos"]["p2"]["front"].endswith("p2_front.png"))
+        self.assertEqual(v["photos"]["front"], str(self.m.item_dir(it) / "front.png"))
+        spec = self.m.r_job({"kind": "spec", "params": {"item": it["id"]}})["job"]
+        self.assertIn("套装", spec["prompt"])
+        self.assertIn("p2_front", spec["prompt"])
+        self.run_one(spec)
+        self.m.r_item_checks({"id": it["id"], "confirmed": True})
+        job = self.m.r_job({"kind": "lock", "params": {"item": it["id"], "account": "1", "face": "ai", "refs": self.m.list_refs()}})["job"]
+        md = (Path(job["params"]["jobDir"]) / "job.md").read_text()
+        self.assertIn("套装：西装外套 + 半裙", md)
+        self.assertIn("p2_front.png（半裙正面）", md)
+        self.assertLess(md.index("半裙正面"), md.index("半裙细节"))
+        self.assertEqual(len(self.m.product_refs(self.m.find_item(self.m.load_state(), it["id"]))), 4)
+        for _ in range(2):
+            self.m.r_item_piece({"id": it["id"], "action": "add", "name": "马甲"})
+        with self.assertRaises(ValueError):
+            self.m.r_item_piece({"id": it["id"], "action": "add", "name": "第五件"})
+        self.m.r_item_piece({"id": it["id"], "action": "delete", "piece": "p2"})
+        self.assertFalse((self.m.item_dir(it) / "p2_front.png").exists())
+        self.assertFalse(self.m.find_item(self.m.load_state(), it["id"])["specOk"])
+
+    def test_104_c_grade_reworks_once_same_batch(self):
+        root, it = self.lock_setup()
+        self.run_one(self.m.r_job({"kind": "spec", "params": {"item": it["id"]}})["job"])
+        self.m.r_item_checks({"id": it["id"], "confirmed": True})
+        refs = self.m.list_refs()
+        job = self.m.r_job({"kind": "lock", "params": {"item": it["id"], "account": "1", "face": "ai", "refs": refs, "note": "扣子全扣"}})["job"]
+        self.run_one(job)
+        jd = Path(job["params"]["jobDir"])
+        outs = sorted(str(p) for p in (jd / "out").glob("*"))
+        rows = json.loads((jd / "recipe.json").read_text())["rows"]
+        for r, f in zip(rows, outs):   # 按任务单的文件名存
+            Path(f).rename(jd / "out" / r["out"])
+        (jd / "report.md").write_text("%s：评级 A，好\n%s：评级 C，领子形状不对" % (rows[0]["out"], rows[1]["out"]), "utf-8")
+        before = self.m.load_state()["lastPick"]["byAcc"]["1"]["refs"]
+        self.m.chain_after(dict(job, status="done"))
+        rw = self.m.load_state()["jobs"][-1]
+        self.assertEqual(rw["params"]["reworkOf"], jd.name)
+        self.assertEqual(rw["params"]["refs"], [rows[1]["ref"]])
+        self.assertIn("领子形状不对", rw["prompt"] + (Path(rw["params"]["jobDir"]) / "job.md").read_text())
+        self.assertTrue(rw["title"].startswith("返工"))
+        self.assertEqual(self.m.load_state()["lastPick"]["byAcc"]["1"]["refs"], before)
+        self.run_one(rw)
+        # 返工的再评 C 也不再返工
+        rjd = Path(rw["params"]["jobDir"])
+        rout = sorted(rjd.glob("out/*"))[0]
+        (rjd / "report.md").write_text("%s：评级 C，还是不对" % rout.name, "utf-8")
+        n = len(self.m.load_state()["jobs"])
+        self.m.chain_after(dict(rw, status="done"))
+        self.assertEqual(len(self.m.load_state()["jobs"]), n)
+        # 返工的图和原来那批算同一批，可以一起写
+        (rjd / "report.md").write_text("%s：评级 A，好了" % rout.name, "utf-8")
+        w = self.m.r_job({"kind": "write", "params": {"account": "1", "item": it["id"], "images": [str(jd / "out" / rows[0]["out"]), str(rout)]}})
+        self.assertTrue(w["ok"])
+
+    def test_105_color_flag(self):
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("没装 Pillow")
+        root, it = self.lock_setup()
+        import io
+        def png(c):
+            b = io.BytesIO(); Image.new("RGB", (60, 80), c).save(b, "PNG"); return b.getvalue()
+        (self.m.item_dir(it) / "front.png").write_bytes(png((120, 120, 125)))
+        self.run_one(self.m.r_job({"kind": "spec", "params": {"item": it["id"]}})["job"])
+        self.m.r_item_checks({"id": it["id"], "confirmed": True})
+        job = self.m.r_job({"kind": "lock", "params": {"item": it["id"], "account": "1", "face": "ai", "refs": self.m.list_refs()}})["job"]
+        self.run_one(job)
+        outs = sorted((Path(job["params"]["jobDir"]) / "out").glob("*"))
+        outs[0].write_bytes(png((125, 118, 128)))
+        outs[1].write_bytes(png((200, 60, 40)))
+        flags = self.m.color_check(job)
+        self.assertEqual(list(flags), [str(outs[1])])
+        self.assertIn(str(outs[1]), self.m.api_state()["colorFlags"])
+
+
 if __name__ == "__main__":
     unittest.main()
