@@ -1,0 +1,1178 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>女装小红书工作台</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%228%22 fill=%22%23e0303f%22/%3E%3C/svg%3E">
+<style>
+/* 女装小红书工作台 v5
+   布局：左侧导航（四大块按流程 1→2→3→4，当前块展开子页）+ 右侧页面（页头一句话说明 → 内容 → 底部固定的主按钮）。
+   视觉：暖白底、卡片轻阴影少描边；小红书红只给主按钮和选中态；8px 间距；一页只有一个红色主按钮。 */
+:root{
+  --paper:#f6f4f2; --card:#ffffff; --ink:#1d1a19; --ink2:#4a4442; --muted:#857c79; --line:#ebe5e2; --soft:#f3efed; --soft2:#faf8f7;
+  --accent:#e0303f; --accent-ink:#ffffff; --accent-soft:#fdecee; --accent-line:#f6c5ca;
+  --good:#1f7a4d; --good-soft:#e7f4ec; --warn:#9a5f0b; --warn-soft:#fbf1df; --bad:#c0362c; --bad-soft:#fcebe9; --info:#2a5fb0; --info-soft:#e9f0fb;
+  --shadow:0 1px 2px rgba(29,26,25,.05),0 2px 8px rgba(29,26,25,.04); --shadow-up:0 -6px 16px rgba(29,26,25,.05);
+  --r:10px; --r2:14px;
+  --body:-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Noto Sans SC","Microsoft YaHei",sans-serif; --mono:ui-monospace,"SF Mono",Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --paper:#141213; --card:#1d1a1b; --ink:#f3eeec; --ink2:#cfc7c4; --muted:#9a908d; --line:#2f2a2b; --soft:#262122; --soft2:#201c1d;
+  --accent:#f25a66; --accent-ink:#1a0b0d; --accent-soft:#3a1d21; --accent-line:#6b2c33;
+  --good:#5cc08a; --good-soft:#1c3328; --warn:#e3a54a; --warn-soft:#3a2d17; --bad:#f07a70; --bad-soft:#3d1f1c; --info:#7fa8ea; --info-soft:#1d2a40;
+  --shadow:0 1px 2px rgba(0,0,0,.3); --shadow-up:0 -6px 16px rgba(0,0,0,.3); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --paper:#141213; --card:#1d1a1b; --ink:#f3eeec; --ink2:#cfc7c4; --muted:#9a908d; --line:#2f2a2b; --soft:#262122; --soft2:#201c1d;
+  --accent:#f25a66; --accent-ink:#1a0b0d; --accent-soft:#3a1d21; --accent-line:#6b2c33;
+  --good:#5cc08a; --good-soft:#1c3328; --warn:#e3a54a; --warn-soft:#3a2d17; --bad:#f07a70; --bad-soft:#3d1f1c; --info:#7fa8ea; --info-soft:#1d2a40;
+  --shadow:0 1px 2px rgba(0,0,0,.3); --shadow-up:0 -6px 16px rgba(0,0,0,.3); color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--body);font-size:14px;line-height:1.6;-webkit-font-smoothing:antialiased}
+h1,h2,h3{margin:0;line-height:1.35;font-weight:600;text-wrap:balance}
+h1{font-size:22px;letter-spacing:-.01em}h2{font-size:16px}h3{font-size:14px}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)}.small{font-size:12.5px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.between{justify-content:space-between}
+.stack{display:flex;flex-direction:column;gap:16px}
+select,input,textarea,button{font:inherit;color:inherit}
+select,input,textarea{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:100%;min-width:0;transition:border-color .15s}
+select:hover,input:hover,textarea:hover{border-color:#d9d0cc}
+textarea{resize:vertical;line-height:1.7}
+:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+input:focus,textarea:focus,select:focus{outline:0;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+button{cursor:pointer;border:1px solid var(--line);background:var(--card);border-radius:8px;padding:6px 12px;white-space:nowrap;transition:background .15s,border-color .15s,color .15s}
+button:hover{border-color:#d5ccc8;background:var(--soft2)}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+button.primary:hover{filter:brightness(.95);background:var(--accent)}
+button.big{padding:10px 22px;font-size:15px;border-radius:10px}
+button.ghost{background:transparent;border-color:transparent}
+button.ghost:hover{background:var(--soft)}
+button.danger{color:var(--bad)}
+button.link{border:0;background:none;color:var(--accent);padding:0;font-weight:500}
+button.link:hover{text-decoration:underline;background:none}
+button:disabled{opacity:.4;cursor:not-allowed}
+a{color:var(--accent)}
+
+/* ---------- 外框：左侧导航 + 右侧页面 */
+.app{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100vh}
+.side{position:sticky;top:0;height:100vh;overflow-y:auto;background:var(--card);border-right:1px solid var(--line);padding:18px 14px;display:flex;flex-direction:column;gap:16px}
+.brand{display:flex;align-items:center;gap:10px;padding:0 6px}
+.brand .mk{width:30px;height:30px;border-radius:9px;background:var(--accent);color:var(--accent-ink);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px}
+.brand b{font-size:15px}
+.brand span{display:block;font-size:11.5px;color:var(--muted);font-weight:400}
+.accsw{display:flex;flex-direction:column;gap:6px;padding:10px;border-radius:var(--r);background:var(--soft2);border:1px solid var(--line)}
+.accsw select{border:0;background:transparent;padding:2px 0;font-weight:600}
+.accsw select:focus{box-shadow:none}
+.login{display:flex;align-items:center;gap:6px;border:0;background:none;padding:0;font-size:12.5px;color:var(--muted)}
+.login:hover{background:none;color:var(--ink)}
+.login i{width:7px;height:7px;border-radius:50%;background:var(--bad)}
+.login.on i{background:var(--good)}
+nav.secs{display:flex;flex-direction:column;gap:2px;position:relative}
+.sec-b{display:grid;grid-template-columns:26px minmax(0,1fr) auto;gap:10px;align-items:center;width:100%;text-align:left;border:0;background:none;padding:8px 8px;border-radius:9px;color:var(--ink2)}
+.sec-b:hover{background:var(--soft)}
+.sec-b .n{width:26px;height:26px;border-radius:50%;border:1.5px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:var(--muted);background:var(--card);position:relative;z-index:1}
+.sec-b b{font-weight:600;font-size:14.5px}
+.sec-b .c{font-size:11.5px;color:var(--muted);font-family:var(--mono)}
+.sec-b[aria-selected="true"]{color:var(--ink);background:var(--soft)}
+.sec-b[aria-selected="true"] .n{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.sec-b .c.hot{color:var(--accent);font-weight:600}
+nav.secs::before{content:"";position:absolute;left:20px;top:22px;bottom:22px;width:1.5px;background:var(--line)}
+.subs{display:flex;flex-direction:column;gap:1px;margin:2px 0 8px 44px;position:relative;z-index:1}
+.subs button{border:0;background:none;text-align:left;padding:5px 10px;border-radius:7px;color:var(--muted);font-size:13.5px;display:flex;justify-content:space-between;gap:6px}
+.subs button:hover{background:var(--soft);color:var(--ink)}
+.subs button[aria-selected="true"]{color:var(--accent);background:var(--accent-soft);font-weight:600}
+.side-foot{margin-top:auto;display:flex;flex-direction:column;gap:6px}
+.ai{display:flex;gap:8px;align-items:center;width:100%;border-radius:9px;padding:8px 10px;background:var(--soft2);font-size:12.5px;border:1px solid var(--line);white-space:normal;text-align:left}
+.dot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--accent);animation:p 1.4s infinite;display:inline-block}
+@keyframes p{50%{opacity:.25}}
+.main{min-width:0;padding:24px 32px 64px}
+.pagehead{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin-bottom:18px}
+.crumb{font-size:12px;color:var(--muted);margin-bottom:2px}
+.pdesc{margin:4px 0 0;color:var(--muted);font-size:13.5px;max-width:640px}
+nav.subm{display:none}
+
+/* ---------- 通用块 */
+.panel{background:var(--card);border:1px solid var(--line);border-radius:var(--r2);padding:20px 22px 0;min-width:0;box-shadow:var(--shadow)}
+.panel > .stack{padding-bottom:20px}
+.panel.pad{padding-bottom:20px}
+.pill{display:inline-flex;align-items:center;gap:4px;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:500;background:var(--soft);color:var(--muted);white-space:nowrap;line-height:1.7}
+.pill.good{background:var(--good-soft);color:var(--good)}.pill.warn{background:var(--warn-soft);color:var(--warn)}.pill.bad{background:var(--bad-soft);color:var(--bad)}.pill.acc{background:var(--info-soft);color:var(--info)}
+.notice{border-radius:var(--r);padding:10px 14px;background:var(--soft);font-size:13px;color:var(--ink2);border:1px solid var(--line)}
+.notice b{color:var(--ink)}
+.notice.bad{background:var(--bad-soft);border-color:transparent;color:var(--bad)}
+.notice.demo{background:var(--info-soft);border-color:transparent;color:var(--info)}
+.hint{font-size:13px;color:var(--ink2);background:var(--soft2);border:1px solid var(--line);border-radius:var(--r);padding:9px 12px;line-height:1.7}
+.hint.warn{background:var(--warn-soft);border-color:transparent;color:var(--warn)}
+.hint.bad{background:var(--bad-soft);border-color:transparent;color:var(--bad)}
+.hint.good{background:var(--good-soft);border-color:transparent;color:var(--good)}
+.empty{padding:40px 16px;text-align:center;color:var(--muted);font-size:13.5px;display:flex;flex-direction:column;align-items:center;gap:10px}
+.empty::before{content:"";width:44px;height:44px;border-radius:12px;background:var(--soft);border:1.5px dashed var(--line)}
+.ph{border-radius:8px;background:var(--soft);display:flex;align-items:center;justify-content:center;font-size:11.5px;color:var(--muted);padding:4px;text-align:center}
+.th{width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:8px;background:var(--soft);display:block}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border-radius:999px;padding:6px 14px;font-size:13px}
+.chip[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--paper)}
+label.f,.field{display:flex;flex-direction:column;gap:5px;font-size:12.5px;color:var(--muted);min-width:0;font-weight:500}
+label.f input,label.f textarea,label.f select{color:var(--ink);font-weight:400;font-size:14px}
+::placeholder{color:#b9afab}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px 14px}
+.wide{grid-column:1/-1}
+.sec{display:flex;flex-direction:column;gap:10px}
+.sec > .h{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.sec + .sec{padding-top:16px;border-top:1px solid var(--line)}
+/* 每页底部的主按钮：固定在可视区底部，位置永远一样 */
+.actions{position:sticky;bottom:0;z-index:3;display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;background:var(--card);margin:4px -22px 0;padding:14px 22px;border-top:1px solid var(--line);border-radius:0 0 var(--r2) var(--r2)}
+.actions .row{gap:8px}
+
+/* 两栏：左边列表 + 右边内容 */
+.two{display:grid;grid-template-columns:248px minmax(0,1fr);gap:20px;align-items:start}
+.left{display:flex;flex-direction:column;gap:6px;position:sticky;top:16px;max-height:calc(100vh - 32px);overflow-y:auto;padding:2px}
+.left .lh{font-size:12px;color:var(--muted);padding:0 4px 2px;display:flex;justify-content:space-between;align-items:center}
+.left .it,.left .q{display:block;width:100%;text-align:left;white-space:normal;border-radius:var(--r);padding:10px 12px;background:var(--card);border:1px solid var(--line);box-shadow:var(--shadow)}
+.left .it{display:grid;grid-template-columns:42px minmax(0,1fr);gap:10px;align-items:center;padding:8px}
+.left .it .th,.left .it .ph{width:42px;height:56px;border-radius:6px}
+.left .it b,.left .q b{font-weight:600;font-size:13.5px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;margin-bottom:4px}
+.left [aria-current="true"]{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.left .add{border:1.5px dashed var(--line);background:transparent;padding:10px;border-radius:var(--r);color:var(--muted);font-weight:500}
+.left .add:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.ihead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding-bottom:16px;margin-bottom:16px;border-bottom:1px solid var(--line)}
+
+/* 产品图 */
+.slots{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+.slot{display:flex;flex-direction:column;gap:6px;min-width:0}
+.slot .drop{position:relative;aspect-ratio:3/4;border-radius:var(--r);border:1.5px dashed #d9d0cc;background:var(--soft2);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12.5px;cursor:pointer;overflow:hidden;padding:0;width:100%}
+.slot .drop:hover,.slot .drop.over{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.slot .drop img{width:100%;height:100%;object-fit:cover}
+.slot .cap{font-size:12px;color:var(--ink2);display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.checks{display:flex;flex-direction:column;gap:6px}
+.chk{display:grid;grid-template-columns:auto 76px minmax(0,1fr) auto;gap:8px;align-items:center}
+.chk input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent)}
+.chk select{padding:6px;font-size:12.5px}
+.chk .sp{width:16px}
+.chk.unsure input:not([type=checkbox]){border-color:#e8c58a;background:var(--warn-soft)}
+.intake{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.intake .slot .drop{aspect-ratio:4/5;flex-direction:column;text-align:center;padding:10px;gap:4px}
+.stylepick{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.stylepick button{display:flex;flex-direction:column;align-items:flex-start;gap:3px;text-align:left;white-space:normal;padding:12px 14px;border-radius:var(--r)}
+.stylepick button b{font-size:14.5px}
+.stylepick button[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 1px var(--accent) inset}
+.opt{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.opt.two-col{grid-template-columns:repeat(2,minmax(0,1fr))}
+.opt label{display:flex;gap:8px;align-items:flex-start;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r);cursor:pointer;color:var(--ink);font-size:13.5px;font-weight:400}
+.opt label:hover{border-color:#d5ccc8}
+.opt label:has(input:checked){border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 1px var(--accent) inset}
+.opt input{width:auto;margin-top:4px;accent-color:var(--accent)}
+input[type=checkbox],input[type=radio]{accent-color:var(--accent)}
+.models{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+.model{text-align:left;white-space:normal;display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:var(--r)}
+.model[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 1px var(--accent) inset}
+.faces{display:flex;gap:4px;flex-wrap:wrap}
+.faces img,.faces .ph{width:34px;height:34px;border-radius:50%;object-fit:cover;font-size:10px}
+.faces .ph.miss{border:1px dashed var(--bad);color:var(--bad);background:transparent}
+.refs{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:10px}
+.ref{padding:0;border:0;border-radius:var(--r);background:none;position:relative;display:flex;flex-direction:column;gap:4px;white-space:normal;min-width:0;text-align:left}
+.ref:hover{background:none}
+.ref .th{outline:1px solid var(--line);outline-offset:-1px;transition:outline-color .15s}
+.ref:hover .th{outline-color:#cfc5c1}
+.ref[aria-pressed="true"] .th{outline:3px solid var(--accent);outline-offset:-3px}
+.ref .n{position:absolute;top:6px;right:6px;background:var(--accent);color:var(--accent-ink);min-width:22px;height:22px;border-radius:11px;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;padding:0 6px;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.ref span.l{font-size:11.5px;color:var(--muted);padding:0 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ref .g{position:absolute;left:6px;top:6px}
+.refbox .x{position:absolute;top:6px;right:6px;width:24px;height:24px;padding:0;border-radius:50%;background:rgba(255,255,255,.92);border:0;opacity:0;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.refbox:hover .x,.refbox .x:focus-visible{opacity:1}
+.refbox select{font-size:11.5px;padding:3px 6px}
+
+/* 文案 */
+.titles{display:flex;flex-direction:column;gap:6px}
+.titles label{display:flex;gap:10px;align-items:center;padding:9px 12px;border:1px solid var(--line);border-radius:var(--r);cursor:pointer;color:var(--ink);font-size:14.5px;font-weight:500}
+.titles label:hover{border-color:#d5ccc8}
+.titles label:has(input:checked){border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 1px var(--accent) inset}
+.titles input[type=radio]{width:auto;accent-color:var(--accent)}
+.grid{border-collapse:separate;border-spacing:4px;font-size:12.5px;margin:-4px}
+.grid th{font-weight:500;color:var(--muted);text-align:center;padding:2px 6px;white-space:nowrap}
+.grid th:first-child{text-align:right}
+.grid td{text-align:center;padding:7px 4px;min-width:64px;border-radius:7px;background:var(--accent-soft);color:var(--accent);font-weight:600;font-family:var(--mono)}
+.grid td.n2{background:#f9d3d7}.grid td.n3{background:var(--accent);color:var(--accent-ink)}
+.grid td.zero{background:transparent;border:1px dashed var(--line);color:#c4bab6;font-weight:400;font-family:var(--body)}
+.tlist{display:flex;flex-direction:column}
+.trow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:4px 12px;align-items:center;padding:10px 4px;border-top:1px solid var(--line)}
+.trow:first-child{border-top:0}
+.trow .tx{min-width:0;overflow-wrap:anywhere;font-weight:500}
+.trow .meta{font-size:12px;color:var(--muted);font-weight:400}
+.trow .acts{display:flex;gap:4px;opacity:.85}
+.trow:hover{background:var(--soft2)}
+.trow.used .tx{color:var(--muted);font-weight:400}
+.addline{display:grid;grid-template-columns:minmax(0,1fr) 100px 100px auto;gap:8px}
+
+/* 发布 */
+.imgs{display:flex;gap:12px;overflow-x:auto;padding:2px 2px 6px}
+.img{flex:none;width:132px;position:relative;border-radius:var(--r);overflow:hidden}
+.img .th{border-radius:var(--r)}
+.img .cv{position:absolute;top:6px;left:6px;background:var(--accent);color:var(--accent-ink);font-size:11px;font-weight:600;border-radius:5px;padding:1px 6px}
+.img .gr{position:absolute;top:6px;right:6px}
+.img .ops{position:absolute;left:0;right:0;bottom:0;display:flex;gap:4px;justify-content:center;flex-wrap:wrap;padding:24px 6px 8px;background:linear-gradient(transparent,rgba(0,0,0,.55));opacity:0;transition:opacity .15s}
+.img:hover .ops,.img:focus-within .ops{opacity:1}
+.img .ops button{padding:2px 8px;font-size:12px;border:0;background:rgba(255,255,255,.94);color:#1d1a19;border-radius:6px}
+.img .ops button.danger{color:var(--bad)}
+@media (hover:none){.img .ops{opacity:1}}
+.when{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px}
+.day{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:10px;min-height:150px;min-width:0;display:flex;flex-direction:column;gap:6px;box-shadow:var(--shadow)}
+.day.today{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.day h3{font-size:12px;font-weight:500;color:var(--muted)}
+.day h3 b{display:block;font-size:18px;color:var(--ink);font-family:var(--mono);font-weight:600}
+.day.today h3,.day.today h3 b{color:var(--accent)}
+.cal{display:block;width:100%;text-align:left;white-space:normal;padding:6px 8px;font-size:12.5px;background:var(--warn-soft);border:0;border-left:3px solid var(--warn);border-radius:6px}
+.cal .t{font-family:var(--mono);font-size:11.5px;color:var(--muted);display:block}
+.cal.done{background:var(--good-soft);border-left-color:var(--good)}.cal.failed,.cal.missed{background:var(--bad-soft);border-left-color:var(--bad)}.cal.running{background:var(--info-soft);border-left-color:var(--info)}
+.list{display:flex;flex-direction:column}
+.item{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;justify-content:space-between;padding:14px 0;border-top:1px solid var(--line)}
+.item:first-child{border-top:0}
+.item .main{flex:1 1 260px;min-width:0;padding:0}
+.title{font-weight:600;overflow-wrap:anywhere}
+
+/* 历史 */
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:var(--r2);padding:14px 16px;display:flex;flex-direction:column;gap:4px;text-align:left;white-space:normal;box-shadow:var(--shadow)}
+button.stat:hover{border-color:#d5ccc8;background:var(--card)}
+.stat b{font-size:28px;font-family:var(--mono);font-variant-numeric:tabular-nums;font-weight:600;line-height:1.1}
+.stat.bad{border-color:var(--accent-line);background:var(--accent-soft)}
+.stat.bad b{color:var(--accent)}
+table.hist{width:100%;border-collapse:collapse;font-size:13px}
+table.hist th{text-align:left;color:var(--muted);font-weight:500;font-size:12px;padding:10px 8px;border-bottom:1px solid var(--line)}
+table.hist td{padding:12px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+table.hist tr:last-child td{border-bottom:0}
+table.hist tr:hover td{background:var(--soft2)}
+table.hist td.t{font-family:var(--mono);font-size:12px;color:var(--muted);white-space:nowrap}
+
+dialog{border:0;border-radius:16px;background:var(--card);color:var(--ink);padding:24px;width:min(640px,calc(100vw - 32px));max-height:calc(100vh - 40px);box-shadow:0 20px 60px rgba(0,0,0,.25)}
+dialog::backdrop{background:rgba(29,26,25,.4);backdrop-filter:blur(2px)}
+pre.log{background:var(--soft2);border:1px solid var(--line);border-radius:8px;padding:12px;font-size:12px;font-family:var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;max-height:55vh;overflow:auto;margin:0}
+details summary{cursor:pointer}
+.toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:10px 18px;border-radius:999px;font-size:13px;z-index:20;max-width:calc(100vw - 32px);box-shadow:0 8px 24px rgba(0,0,0,.2)}
+
+@media (max-width:1100px){
+  .app{grid-template-columns:200px minmax(0,1fr)}
+  .main{padding:20px}
+  .two{grid-template-columns:210px minmax(0,1fr)}
+  .slots{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .opt{grid-template-columns:1fr}
+}
+@media (max-width:760px){
+  .app{display:block}
+  .side{position:static;height:auto;flex-direction:row;flex-wrap:wrap;align-items:center;gap:10px;padding:12px 16px;border-right:0;border-bottom:1px solid var(--line)}
+  .brand span{display:none}
+  .accsw{flex-direction:row;align-items:center;padding:4px 10px;margin-left:auto}
+  nav.secs{flex-direction:row;overflow-x:auto;width:100%;gap:6px}
+  nav.secs::before,.subs{display:none}
+  .sec-b{grid-template-columns:22px auto;flex:none;width:auto;padding:6px 10px;border:1px solid var(--line)}
+  .sec-b .n{width:22px;height:22px;font-size:11px}
+  .sec-b .c{display:none}
+  .side-foot{margin:0;flex-direction:row;width:100%}
+  nav.subm{display:flex;gap:6px;overflow-x:auto;margin:0 0 14px}
+  nav.subm button{flex:none;border-radius:999px;padding:5px 12px;font-size:13px;display:flex;gap:4px}
+  .day{min-height:84px}
+  nav.subm button[aria-selected="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+  .main{padding:16px}
+  .two{grid-template-columns:1fr}
+  .left{position:static;max-height:none;flex-direction:row;overflow-x:auto}
+  .left .it,.left .q,.left .add{min-width:200px}
+  .left .lh{display:none}
+  .panel{padding:16px 16px 0}
+  .actions{margin:4px -16px 0;padding:12px 16px}
+  .slots{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .stylepick,.opt.two-col{grid-template-columns:1fr}
+  .week{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .chk{grid-template-columns:auto minmax(0,1fr) auto}.chk select{display:none}
+  .addline{grid-template-columns:1fr 1fr}
+  .addline input{grid-column:1/-1}
+  table.hist .hide-s{display:none}
+  .pagehead{flex-direction:column;align-items:flex-start}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}.dot{animation:none}}
+
+.panel > .stack:has(> .actions:last-child){padding-bottom:0}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><div class="mk" aria-hidden="true">红</div><div><b>女装工作台</b><span>产品图 → 文案 → 发布</span></div></div>
+    <div class="accsw"><select id="acc" aria-label="账号"></select><button type="button" class="login" id="online" data-go="login"></button></div>
+    <nav class="secs" id="big" aria-label="四大板块"></nav>
+    <div class="side-foot">
+      <button class="ai" id="aiBtn" type="button"></button>
+      <button class="ghost" id="btnSettings" type="button" style="text-align:left">设置</button>
+    </div>
+  </aside>
+  <section class="main">
+    <div class="pagehead"><div><div class="crumb" id="crumb"></div><h1 id="ptitle"></h1><p class="pdesc" id="pdesc"></p></div></div>
+    <nav class="subm" id="subm" aria-label="子页"></nav>
+    <div id="health"></div>
+    <main id="page"></main>
+  </section>
+</div>
+<dialog id="dlg"><form method="dialog" id="dlgForm" class="stack"></form></dialog>
+<div class="toast" id="toast" hidden></div>
+<input type="file" id="photoFile" accept="image/*" hidden>
+<input type="file" id="refFile" accept="image/*" multiple hidden>
+
+<script>
+(() => {
+'use strict';
+let D = null, sig = '';
+const UI = {tab: 'img', sub: {img: 'info', copy: 'review', pub: 'queue', hist: 'all'}, acc: '', item: '', review: '', pubSel: '', week: 0, when: '', whenAt: ''};
+// 出图时的选择；写文案时的选择（从「出好的图」或「选题库」带过来）
+const PICK = {refs: [], face: 'model', model: '', style: 'mirror', autoWrite: true, split: 1, init: ''};
+const W = {item: '', imgs: [], topic: null, split: 1, coverText: true, trialItem: ''};
+try { const s = JSON.parse(localStorage.getItem('xhs-studio-ui5') || '{}'); Object.assign(UI, s, {sub: Object.assign(UI.sub, s.sub || {})}); } catch (e) {}
+const save = () => { try { localStorage.setItem('xhs-studio-ui5', JSON.stringify({tab: UI.tab, sub: UI.sub, acc: UI.acc, item: UI.item})); } catch (e) {} };
+const $ = s => document.querySelector(s);
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const len = s => Array.from(String(s || '')).length;
+const img = p => '/img?p=' + encodeURIComponent(p);
+const base = p => String(p || '').split('/').pop();
+const stem = p => base(p).replace(/\.[^.]+$/, '');
+const pad = n => String(n).padStart(2, '0');
+const fmtDT = ms => { const d = new Date(ms); return `${d.getMonth() + 1}月${d.getDate()}日 ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+const fmtD = ms => { const d = new Date(ms); return `${d.getMonth() + 1}月${d.getDate()}日`; };
+function toast(m) { const t = $('#toast'); t.textContent = m; t.hidden = false; clearTimeout(toast.h); toast.h = setTimeout(() => t.hidden = true, 3600); }
+
+async function api(path, body, quiet) {
+  try {
+    const r = await fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {})});
+    const j = await r.json();
+    if (!r.ok || j.ok === false) { if (!quiet) toast(j.error || '操作失败'); return quiet ? j : null; }
+    await refresh(true);
+    return j;
+  } catch (e) { toast('连不上工作台服务，确认它还在运行'); return null; }
+}
+async function refresh(force) {
+  try {
+    const r = await fetch('/api/state'); const j = await r.json();
+    if (!r.ok || j.ok === false) throw new Error(j.error || '数据读取失败');
+    const s = JSON.stringify(j, (k, v) => k === 'now' ? undefined : v);
+    if (!force && s === sig) return;
+    sig = s; D = j;
+    if (!UI.acc || !D.accounts.some(a => String(a.id) === String(UI.acc))) UI.acc = D.accounts.length ? String(D.accounts[0].id) : '';
+    render();
+  } catch (e) { $('#health').innerHTML = '<div class="notice bad"><b>连不上工作台服务。</b>在 Codex 里说“打开工作台”重新启动。</div>'; }
+}
+
+// ---------- helpers
+const F = () => D.fashion;
+const mine = arr => arr.filter(x => String(x.account_id ?? x.account) === String(UI.acc));
+const myItems = () => D.items.filter(i => i.lockName && (!i.account || String(i.account) === String(UI.acc)));
+const acc = () => D.accounts.find(a => String(a.id) === String(UI.acc));
+const itemName = id => (D.items.find(i => i.id === id) || {}).name || '';
+function checkDraft(d, needImg = true) {
+  const errs = [], warns = [], t = String(d.title || '').trim(), b = String(d.body || ''), all = t + b;
+  if (!t) errs.push('缺标题'); else if (len(t) > 18) errs.push(`标题 ${len(t)} 字，超过 18`);
+  if (!b.trim()) errs.push('缺正文'); else if (len(b) > 888) errs.push(`正文 ${len(b)} 字，超过 888`);
+  const banned = F().riskErrors.concat(String((acc() || {}).banned || '').split(/[、,，\s]+/).filter(Boolean));
+  const e1 = banned.filter(w => all.includes(w)); if (e1.length) errs.push('违规词：' + e1.join('、'));
+  const w1 = F().riskWarns.filter(w => all.includes(w)); if (w1.length) warns.push('慎用：' + w1.join('、'));
+  if (/^\s{0,3}#{1,6}\s|\*\*[^*]+\*\*|`/m.test(b)) errs.push('有 Markdown 符号');
+  if (/^\s{0,3}(?:[-*>]\s)/m.test(b)) warns.push('有列表符号，小红书不识别');
+  const n = (d.tags || []).length; if (n < 5 || n > 10) warns.push(`话题 ${n} 个，建议 8–10`);
+  if (!/\d{3}\s*(cm|CM)?.{0,6}\d{2,3}\s*(kg|斤)|穿\s*[SMLX]{1,3}\b|[SMLX]{1,3}\s*码/.test(b)) warns.push('没写模特尺码');
+  if (needImg && !(d.images || []).length) errs.push('没有图片');
+  return {errs, warns, ok: !errs.length};
+}
+function draftState(r) {
+  if (r.status === '已发布') return 'published';
+  if (D.schedule.some(s => String(s.review) === String(r.id) && (s.status === 'pending' || s.status === 'running'))) return 'sched';
+  if (r.status === '驳回') return 'rejected';
+  if (D.ready[String(r.id)]) return 'ready';
+  return 'todo';
+}
+const DSTATE = {todo: ['待审', 'warn'], ready: ['定稿待排期', 'good'], sched: ['已排期', 'acc'], rejected: ['已驳回', 'bad'], published: ['已发布', 'good']};
+const activeJobs = () => D.jobs.filter(j => j.status === 'running' || j.status === 'queued');
+const JOBST = {queued: ['排队中', ''], running: ['进行中', 'acc'], done: ['完成', 'good'], failed: ['失败', 'bad'], cancelled: ['已取消', '']};
+const JOBKIND = {spec: '写档案', lock: '出图', write: '写文案', rewrite: '改稿', topics: '出选题', trial: '试写'};
+const allGrades = () => Object.assign({}, ...D.items.map(i => i.grades || {}));
+const gradePill = g => g && g.grade ? `<span class="pill ${g.grade === 'A' ? 'good' : g.grade === 'B' ? 'warn' : 'bad'}">${g.grade}</span>` : '';
+const myTopics = () => mine(D.topics);
+const unusedTopics = () => myTopics().filter(t => t.status === 'unused');
+const refStyle = r => D.lock.refStyles[r] || 'other';
+function upcomingNodes() {
+  const now = new Date(); now.setHours(0, 0, 0, 0);
+  const out = [];
+  for (const y of [now.getFullYear(), now.getFullYear() + 1]) for (const n of F().nodes) {
+    const [m, d] = n.md.split('-').map(Number); const at = new Date(y, m - 1, d).getTime();
+    const days = Math.round((at - now.getTime()) / 864e5);
+    if (days >= 0 && days <= 60) out.push({...n, at, days, postBy: at - 14 * 864e5});
+  }
+  return out.sort((a, b) => a.at - b.at);
+}
+const weekStart = off => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - (d.getDay() + 6) % 7 + off * 7); return d.getTime(); };
+const lastImages = it => ((it.lockJobs || []).find(j => j.images.length) || {images: []}).images;
+const busyHint = text => `<div class="hint"><span class="dot" style="display:inline-block"></span> ${text}</div>`;
+
+// ---------- 结构：四大块，每块一排子页；每页页头一句话告诉人这一页干什么
+const DESC = {
+  'img.info': '拍好的衣服照片放进来，AI 读吊牌写档案；你补上材质手感和痛点，再核对检查要点。',
+  'img.shoot': '选风格和参考图，锁住衣服细节出上身图。每张出完 AI 会放大检查，不合格自动重做。',
+  'img.result': '挑能用的图，第 1 张是封面，然后交给 AI 写文案。',
+  'img.lib': '模特照片和想模仿的参考图。参考图按风格分组，出图时选了风格就自动带上。',
+  'copy.topic': '每个号一个选题库。看场景 × 身材哪里还空着，挑一条去写。',
+  'copy.review': '挑标题、改字。没问题就定稿，交给「发布」。',
+  'copy.write': '选款、选图、选题，交给 AI 写。写好进「审稿」，不会自动发。',
+  'copy.set': '账号定位和口吻设一次，之后每篇都按这个写。',
+  'pub.queue': '调封面和图序，选时间。到点工作台打开浏览器直接发。',
+  'pub.cal': '这一周排了什么、发了什么、哪篇没发出去。',
+  'pub.login': '每个号在工作台扫一次码，之后一直有效。',
+  'hist.all': '发过什么、哪里出错、AI 做了什么，都按时间排在这里。',
+  'hist.pub': '已经发出去的笔记。', 'hist.fail': '没发出去的和被驳回的，处理完就从这里消失。', 'hist.ai': '交给 AI 的每件事：出选题、写档案、出图、写文案、改稿。',
+};
+const TABS = [
+  ['img', '第 1 块', '产品图'], ['copy', '第 2 块', '文案'], ['pub', '第 3 块', '发布'], ['hist', '第 4 块', '历史记录']];
+function subsOf(tab) {
+  const R = mine(D.reviews);
+  const nTodo = R.filter(r => ['todo', 'rejected'].includes(draftState(r))).length, nReady = R.filter(r => draftState(r) === 'ready').length;
+  return {
+    img: [['info', '照片和资料'], ['shoot', '出图'], ['result', '出好的图'], ['lib', '模特和参考图库']],
+    copy: [['topic', `选题库（${unusedTopics().length}）`], ['review', `审稿（${nTodo}）`], ['write', '写新的一篇'], ['set', '文案设定']],
+    pub: [['queue', `待发布（${nReady}）`], ['cal', '排期日历'], ['login', '账号登录']],
+    hist: [['all', '全部'], ['pub', '已发布'], ['fail', '没发出 / 驳回'], ['ai', 'AI 任务']],
+  }[tab];
+}
+function go(tab, sub) { UI.tab = tab; if (sub) UI.sub[tab] = sub; save(); render(); window.scrollTo(0, 0); }
+
+function render() {
+  const sel = $('#acc');
+  sel.innerHTML = D.accounts.map(a => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('') || '<option value="">没有账号</option>';
+  sel.value = UI.acc;
+  const a = acc();
+  $('#online').className = 'login' + (a && a.online ? ' on' : '');
+  $('#online').innerHTML = a ? `<i></i>${a.online ? '小红书已登录' : '小红书未登录，点这里扫码'}` : '';
+  const run = activeJobs(), cur = run.find(j => j.status === 'running');
+  const lastFail = D.jobs.find(j => j.status === 'failed' && Date.now() - (j.endedAt || 0) < 6 * 3600e3);
+  $('#aiBtn').innerHTML = run.length ? `<span class="dot"></span><span>${esc(cur ? cur.title : '排队中')}${run.length > 1 ? ` 等 ${run.length} 件` : ''}</span>` : lastFail ? '<span class="pill bad">有任务失败</span><span>点开看</span>' : '<span class="muted">AI 空闲 · 看任务记录</span>';
+  const st = D.stats[String(UI.acc)] || {}, R = mine(D.reviews);
+  // 侧栏每块右边一个数：要人处理的才标红
+  const nTodo = R.filter(r => draftState(r) === 'todo').length, nReady = R.filter(r => draftState(r) === 'ready').length;
+  const counts = {img: [myItems().some(i => i.busy) ? '…' : myItems().length || '', false], copy: [nTodo || '', nTodo > 0],
+    pub: [nReady || st.scheduled || '', nReady > 0], hist: [st.failed || '', st.failed > 0]};
+  const subs = subsOf(UI.tab);
+  if (!subs.some(s => s[0] === UI.sub[UI.tab])) UI.sub[UI.tab] = subs[0][0];
+  const subBtns = subs.map(([k, l]) => { const m = l.match(/^(.*?)（(\d+)）$/); return `<button type="button" data-tab="${UI.tab}" data-sub="${k}" aria-selected="${UI.sub[UI.tab] === k}"><span>${esc(m ? m[1] : l)}</span>${m && m[2] !== '0' ? `<span class="num">${m[2]}</span>` : ''}</button>`; }).join('');
+  $('#big').innerHTML = TABS.map(([k, no, name], i) => `<button type="button" class="sec-b" data-tab="${k}" aria-selected="${UI.tab === k}"><span class="n">${i + 1}</span><b>${name}</b><span class="c ${counts[k][1] ? 'hot' : ''}">${esc(counts[k][0])}</span></button>${UI.tab === k ? `<div class="subs">${subBtns}</div>` : ''}`).join('');
+  $('#subm').innerHTML = subBtns;
+  const subName = (subs.find(s => s[0] === UI.sub[UI.tab]) || ['', ''])[1].replace(/（\d+）$/, '');
+  $('#crumb').textContent = `第 ${TABS.findIndex(t => t[0] === UI.tab) + 1} 块 · ${TABS.find(t => t[0] === UI.tab)[2]}`;
+  $('#ptitle').textContent = subName;
+  $('#pdesc').textContent = DESC[UI.tab + '.' + UI.sub[UI.tab]] || '';
+  const h = [];
+  if (D.demo) h.push('<div class="notice demo"><b>演示模式</b>：数据是假的，不会调用 Codex，也不会真的发帖。</div>');
+  if (!D.lock.ok) h.push(`<div class="notice bad"><b>找不到锁图工作台</b>（${esc(D.lock.path)}）。出图用不了，到“设置 › 高级”里填 xhs-lock-studio 文件夹的位置。</div>`);
+  if (!D.publisherOk) h.push('<div class="notice bad"><b>找不到发布脚本</b>（xhs-autopilot/publisher/xhs_publish.py）。发布用不了。</div>');
+  if (!D.codex) h.push('<div class="notice bad"><b>找不到 codex 命令行。</b>出图和写文案用不了，到“设置 › 高级”里填它的路径。</div>');
+  $('#health').innerHTML = h.length ? `<div class="stack" style="margin-bottom:14px">${h.join('')}</div>` : '';
+  const ae = document.activeElement;
+  if (ae && ae.closest && ae.closest('#page') && ['INPUT', 'TEXTAREA', 'SELECT'].includes(ae.tagName) && ae.type !== 'checkbox' && ae.type !== 'radio') return;
+  const sub = UI.sub[UI.tab];
+  $('#page').innerHTML = ({img: pageImg, copy: pageCopy, pub: pagePub, hist: pageHist})[UI.tab](sub);
+  bindDrops();
+  const tb = $('#rBody'); if (tb) tb.oninput = () => { $('#bodyCount').textContent = `${len(tb.value)} / 888`; };
+}
+
+// ================================================================ 第 1 块 产品图
+const AIF = {name: '名称', code: '款号', category: '品类', colors: '颜色', sizes: '尺码', fabric: '面料', price: '价格', fit: '版型', points: '卖点'};
+const STAGE_PILL = {'缺正面图': 'bad', '待写档案': 'warn', '档案待核对': 'warn', '待出图': '', '图已出好': 'good'};
+function pageImg(sub) {
+  const items = myItems();
+  if (!items.some(i => i.id === UI.item)) UI.item = items.length ? items[0].id : '';
+  const it = items.find(i => i.id === UI.item);
+  if (sub === 'lib') return libPage();
+  const left = `<div class="left"><div class="lh"><span>新款 ${items.length}</span></div><button type="button" class="add" data-do="addItem">＋ 上新一款</button>${items.map(i => {
+    const draftN = mine(D.reviews).filter(r => lastImages(i).some(p => (r.images || []).includes(p))).length;
+    const stage = i.busy ? i.stage : draftN ? `图已出好 · 写了 ${draftN} 篇` : i.stage;
+    return `<button type="button" class="it" data-do="pickItem" data-id="${esc(i.id)}" aria-current="${i.id === UI.item}">${i.photos.front ? `<img class="th" src="${img(i.photos.front)}" alt="">` : '<div class="ph">无图</div>'}
+      <div><b>${esc(i.name)}</b><span class="pill ${i.busy ? 'acc' : draftN ? 'good' : STAGE_PILL[i.stage] || ''}">${esc(stage)}</span></div></button>`;
+  }).join('')}</div>`;
+  if (!it) return `<div class="two">${left}<div class="panel pad"><div class="empty">还没有新款。点左边「上新一款」，从拍好的衣服照片开始。</div></div></div>`;
+  const head = `<div class="ihead"><div><h2>${esc(it.name)}</h2><div class="small muted">${[it.code, it.category, it.colors, it.sizes].filter(Boolean).map(esc).join(' · ') || '还没填款号和颜色'}</div></div>
+    <button class="ghost" type="button" data-do="editItem" data-id="${esc(it.id)}">编辑全部资料</button></div>`;
+  const body = sub === 'info' ? infoPage(it) : sub === 'shoot' ? shootPage(it) : resultPage(it);
+  return `<div class="two">${left}<div class="panel">${head}<div class="stack">${body}</div></div></div>`;
+}
+function infoPage(it) {
+  const tips = {front: '必须', tag: 'AI 读成分尺码', back: '建议', detail_1: '面料近拍，平铺拍', detail_2: '领口/扣子/印花'};
+  const slots = Object.entries({front: '正面', tag: '吊牌', back: '背面', detail_1: '面料近拍', detail_2: '关键设计'}).map(([k, l]) => {
+    const p = it.photos[k];
+    return `<div class="slot"><button type="button" class="drop" data-slot="${k}" data-id="${esc(it.id)}" title="点击或把照片拖进来">${p ? `<img src="${img(p)}" alt="${l}">` : '＋ 拖进来'}</button>
+      <span class="cap"><b>${l}</b>${p ? '<span class="pill good">✓</span>' : k === 'front' ? '<span class="pill bad">必须</span>' : ''}<span class="muted">${k === 'front' ? '' : tips[k]}</span></span></div>`;
+  }).join('');
+  const notes = (it.photoNotes || []).map(n => `<div class="hint warn">${esc(n)}</div>`).join('');
+  let spec;
+  if (it.busy === 'spec') spec = busyHint('AI 正在看照片、读吊牌、写档案，大约 3–5 分钟。好了会自动填上名称和面料，在这里核对。');
+  else if (!it.hasSpec) spec = `<div class="hint">照片放好后，让 AI 按照片写档案：颜色、材质、领型、扣子这些出图时要锁住的细节，最后列出「检查要点」。</div>
+      <div><button type="button" class="primary" data-do="spec" data-id="${esc(it.id)}" ${it.photos.front ? '' : 'disabled title="先上传正面照"'}>让 AI 按照片写档案</button></div>`;
+  else spec = `<div class="hint">出图时 AI 会逐条放大对照：「必过」不对的图会重做，「尽量」不对只提醒你。${it.checks.some(c => c.unsure) && !it.specOk ? '<br><b>黄色的几条 AI 从照片上看不准</b>，请对着实物看一眼再打勾。' : ''}</div>
+      <div class="checks" id="checks">${it.checks.map((c, i) => chkRow(c, i, it.specOk)).join('')}</div>
+      <div class="row"><button type="button" class="ghost" data-do="addCheck">＋ 加一条</button><button type="button" class="link" data-do="viewSpec" data-id="${esc(it.id)}">看完整档案</button><button type="button" class="link" data-do="spec" data-id="${esc(it.id)}">照片换了，重写档案</button></div>`;
+  const aiNote = (it.aiFilled || []).length ? `<div class="hint">${Object.keys(AIF).filter(k => (it.aiFilled || []).includes(k)).map(k => AIF[k]).join('、')}是 AI 从照片和吊牌读的，<button type="button" class="link" data-do="editItem" data-id="${esc(it.id)}">核对一下</button></div>` : '';
+  const tJob = activeJobs().find(j => j.kind === 'topics' && j.params.forItem === it.id);
+  const tN = myTopics().filter(t => t.item === it.id && t.status === 'unused').length;
+  const topicNote = tJob ? busyHint('材质和痛点填好了，AI 正在给这款出 5 条选题，好了放进「文案 › 选题库」。')
+    : tN ? `<div class="hint good">这款在选题库里有 ${tN} 条没用的选题。<button type="button" class="link" data-do="goSub" data-tab="copy" data-sub="topic">去看</button></div>`
+    : '<div class="small muted">材质手感和痛点都填好后，AI 会自动给这款出 5 条选题，放进「文案 › 选题库」。</div>';
+  const fld = (k, l, ph, wide) => `<label class="f ${wide ? 'wide' : ''}">${l}<input id="if-${k}" value="${esc(it[k] || '')}" placeholder="${esc(ph)}"></label>`;
+  return `<div class="sec"><div class="h"><h3>产品照片</h3><span class="small muted">纯色背景平铺或挂拍；照片越全，出图越不走样</span></div><div class="slots">${slots}</div>${notes}</div>
+    <div class="sec"><div class="h"><h3>资料</h3><span class="small muted">文案里的事实只从这里取，AI 不会自己编</span></div>${aiNote}
+      <div class="form">${fld('texture', '材质手感', '软糯不扎、垂感好、不掉毛')}${fld('pain', '痛点（这款解决什么）', '小个子穿长外套显矮、毛毛外套显胖')}
+      ${fld('modelSize', '模特身高体重和穿的码', '160cm 48kg 穿 M')}${fld('price', '价格（不填文案就不提）', '')}
+      ${fld('goods', '挂商品（店铺商品 ID，发布时自动挂；没开店就空着）', 'CT-2410-02', true)}</div>
+      <div class="row between" style="flex-wrap:nowrap;align-items:flex-start">${topicNote}<button type="button" data-do="saveInfo" data-id="${esc(it.id)}">保存资料</button></div></div>
+    <div class="sec"><div class="h"><h3>检查要点</h3></div>${spec}</div>
+    ${it.hasSpec && it.busy !== 'spec' ? `<div class="actions"><span class="small muted" id="chkLeft">${it.specOk ? '检查要点已核对' : '核对完检查要点就能出图'}</span><button type="button" class="primary big" data-do="confirmSpec" data-id="${esc(it.id)}">${it.specOk ? '已核对，去出图 →' : '没问题，去出图 →'}</button></div>` : ''}`;
+}
+const chkRow = (c, i, ok) => `<div class="chk ${c.unsure && !ok ? 'unsure' : ''}">${c.unsure && !ok ? '<input type="checkbox" aria-label="已对着实物核对">' : '<span class="sp"></span>'}
+  <select aria-label="级别"><option ${c.level === '必过' ? 'selected' : ''}>必过</option><option ${c.level === '尽量' ? 'selected' : ''}>尽量</option></select>
+  <input value="${esc(c.text)}" aria-label="检查要点 ${i + 1}"><button type="button" class="ghost danger" data-do="delCheck" aria-label="删除">×</button></div>`;
+const STYLE_OPTS = [['mirror', '对镜自拍', '手机挡脸 · 试衣镜 / 电梯镜 / 卧室镜'], ['street', '街拍', '走路 · 回头 · 过马路 · 靠墙'], ['own', '自己挑', '从全部参考图里选']];
+function initPick(it, style) {
+  const lp = D.lastPick || {}, refs = D.lock.refs, models = D.lock.models;
+  PICK.style = style || PICK.style || lp.style || 'mirror';
+  PICK.face = ((lp.faceByStyle || {})[PICK.style]) || (PICK.style === 'mirror' ? 'hide' : lp.face || 'model');
+  if (lp.model && models.some(m => m.name === lp.model)) PICK.model = lp.model;
+  if (PICK.style === 'own') {
+    const last = ((lp.refsByCat || {})[it.category || '其他'] || []).filter(r => refs.includes(r));
+    PICK.refs = last.length ? last : refs.slice(-4);
+  } else PICK.refs = refs.filter(r => refStyle(r) === PICK.style).slice(0, 6);
+}
+function shootPage(it) {
+  if (!(it.photos.front && it.hasSpec && it.specOk)) return `<div class="empty">先在「① 照片和资料」里放好正面照、让 AI 写档案并核对检查要点。<br><button type="button" class="link" data-do="goSub" data-tab="img" data-sub="info">去 ①</button></div>`;
+  const job = activeJobs().find(j => j.kind === 'lock' && j.params && j.params.item === it.id);
+  const last = (it.lockJobs || [])[0];
+  if (job) {
+    const mins = Math.max(0, Math.round(((job.startedAt || job.createdAt) + (job.estimateMin || 20) * 60e3 - Date.now()) / 60e3));
+    return `${busyHint(`正在出图：${esc(job.title)}。${job.status === 'queued' ? (activeJobs().some(j => j.status === 'running') ? '前面还有任务在排队。' : '马上开始。') : `预计还要 ${mins} 分钟左右。`}每张出完 AI 会放大检查脸和衣服，不合格自动重做。`)}
+      ${last && last.images.length ? `<div class="refs">${last.images.map(p => `<div class="ref"><img class="th" src="${img(p)}" alt=""><span class="l">${esc(base(p))}</span></div>`).join('')}</div>` : ''}
+      <div class="row"><button type="button" class="ghost" data-do="log" data-id="${esc(job.id)}">看过程</button><button type="button" class="ghost danger" data-do="cancelJob" data-id="${esc(job.id)}">停止</button></div>`;
+  }
+  const models = D.lock.models, refs = D.lock.refs;
+  if (PICK.init !== it.id) { PICK.init = it.id; initPick(it); }
+  if (!PICK.model && models.length) PICK.model = (models.find(m => !m.missing.length) || models[0]).name;
+  PICK.refs = PICK.refs.filter(r => refs.includes(r));
+  const shown = PICK.style === 'own' ? refs : refs.filter(r => refStyle(r) === PICK.style);
+  const est = (D.lock.minPerImage[PICK.face] || 5) * PICK.refs.length;
+  const styleName = (STYLE_OPTS.find(s => s[0] === PICK.style) || [])[1];
+  return `${last && last.images.length ? `<div class="hint">上次出了 ${last.images.length} 张${last.rejected ? `，${last.rejected} 张没通过` : ''}。<button type="button" class="link" data-do="goSub" data-tab="img" data-sub="result">去看出好的图</button></div>` : ''}
+    <div class="sec"><div class="h"><h3>拍什么风格</h3><span class="small muted">选了就自动带上图库里这一组参考图</span></div>
+      <div class="stylepick">${STYLE_OPTS.map(([k, n, tip]) => `<button type="button" data-do="style" data-k="${k}" aria-pressed="${PICK.style === k}"><b>${n}</b><span class="small muted">${tip}</span></button>`).join('')}</div></div>
+    <div class="sec"><h3>参考图里那个人怎么处理</h3><div class="opt">
+      <label><input type="radio" name="face" value="hide" ${PICK.face === 'hide' ? 'checked' : ''}><span><b>不露脸</b>${PICK.style === 'mirror' ? '（对镜自拍推荐）' : ''}<br><span class="small muted">保留参考图里用手机挡脸，或裁到嘴巴以下。每张约 2–3 分钟</span></span></label>
+      <label><input type="radio" name="face" value="model" ${PICK.face === 'model' ? 'checked' : ''}><span><b>换成我们的模特</b><br><span class="small muted">动作和场景照参考图，脸和发型换成我们的模特。每张约 6–8 分钟</span></span></label>
+      <label><input type="radio" name="face" value="ai" ${PICK.face === 'ai' ? 'checked' : ''}><span><b>脸换成 AI 脸</b><br><span class="small muted">最快最自然，每张约 2–3 分钟；脸不是我们的模特</span></span></label>
+    </div></div>
+    ${PICK.face === 'model' ? `<div class="sec"><div class="h"><h3>谁来穿</h3><button type="button" class="link" data-do="goSub" data-tab="img" data-sub="lib">管理模特</button></div>
+      ${models.length ? `<div class="models">${models.map(m => modelCard(m, true)).join('')}</div>` : '<div class="hint warn">还没有模特。到「模特和参考图库」看怎么加。</div>'}</div>` : ''}
+    <div class="sec"><div class="h"><h3>照哪些图拍</h3><span class="small muted">每选一张出一张；${PICK.style === 'own' ? '' : `已带上「${styleName}」这组，`}建议 4–6 张</span></div>
+      ${shown.length ? `<div class="refs">${shown.map(r => { const n = PICK.refs.indexOf(r); return `<button type="button" class="ref" data-do="pickRef" data-ref="${esc(r)}" aria-pressed="${n >= 0}"><img class="th" src="${img(r)}" alt="">${n >= 0 ? `<span class="n">${n + 1}</span>` : ''}<span class="l">${esc(stem(r))}</span></button>`; }).join('')}</div>`
+        : `<div class="hint warn">${PICK.style === 'own' ? '参考图库是空的' : `「${styleName}」这组还没有参考图`}，先上传几张想模仿的小红书图。</div>`}
+      <div class="row"><button type="button" data-do="uploadRef" data-style="${PICK.style === 'own' ? 'other' : PICK.style}">＋ 上传${PICK.style === 'own' ? '' : '到「' + styleName + '」'}参考图</button></div></div>
+    <label class="f">补充要求（可不填）<input id="lockNote" placeholder="例：外套扣子全扣上；下装和鞋保留参考图原来的"></label>
+    <div class="sec"><label class="row small" style="flex-wrap:nowrap;align-items:flex-start;gap:8px"><input type="checkbox" id="autoWrite" ${PICK.autoWrite ? 'checked' : ''} style="width:auto"> 出完自动挑 A 级图写文案（有这款的选题就用上），写好放进「文案 › 审稿」</label>
+      ${PICK.autoWrite ? `<label class="row small" style="flex-wrap:nowrap;align-items:flex-start;gap:8px;margin-left:24px"><input type="checkbox" id="autoSplit" ${PICK.split === 2 ? 'checked' : ''} style="width:auto"> 图够 4 张就拆成 2 篇（身材尺码一篇、场景搭配一篇）</label>` : ''}</div>
+    <div class="actions"><span class="small muted">${PICK.refs.length ? `${PICK.refs.length} 张 · 约 ${est} 分钟 · 额度用完会停在当前张，恢复后再点只补没出的` : '先选参考图'}</span>
+      <button type="button" class="primary big" data-do="lock" data-id="${esc(it.id)}" ${PICK.refs.length && (PICK.face !== 'model' || PICK.model) ? '' : 'disabled'}>开始出图</button></div>`;
+}
+function modelCard(m, pick) {
+  const tags = [['face_1', '正'], ['face_2', '半侧'], ['face_3', '全侧'], ['body_1', '全身']];
+  const inner = `<b>${esc(m.name)}${m.size ? ' · ' + esc(m.size) : ''}</b>
+    <div class="faces">${tags.map(([k, l]) => m.faces[k] ? `<img src="${img(m.faces[k])}" alt="${l}" title="${l}">` : `<div class="ph ${k === 'body_1' ? '' : 'miss'}">${k === 'body_1' ? '无' : '缺'}</div>`).join('')}</div>
+    ${m.missing.length ? `<span class="pill warn">缺${m.missing.join('、')}，这个角度容易不像</span>` : '<span class="pill good">照片齐了</span>'}`;
+  return pick ? `<button type="button" class="model" data-do="pickModel" data-name="${esc(m.name)}" aria-pressed="${PICK.model === m.name}">${inner}</button>` : `<div class="model panel">${inner}</div>`;
+}
+function resultPage(it) {
+  const last = (it.lockJobs || []).find(j => j.images.length);
+  if (!last) return `<div class="empty">还没有出好的图。<button type="button" class="link" data-do="goSub" data-tab="img" data-sub="shoot">去 ② 出图</button></div>`;
+  const g = it.grades || {};
+  const pool = last.images.concat(it.photos.detail_1 ? [it.photos.detail_1] : []);
+  if (W.item !== it.id) { W.item = it.id; W.imgs = []; }
+  W.imgs = W.imgs.filter(p => pool.includes(p));
+  if (!W.imgs.length) W.imgs = last.images.filter(p => (g[p] || {}).grade !== 'C');
+  const n = Object.values(g).reduce((o, x) => (o[x.grade || '?'] = (o[x.grade || '?'] || 0) + 1, o), {});
+  return `<div class="hint">这批出了 ${last.images.length} 张：A ${n.A || 0} · B ${n.B || 0}${last.rejected ? ` · ${last.rejected} 张没通过已放进 rejected` : ''}。A 能直接用；B 衣服对、小地方请放大看。点图选择，<b>第 1 张是封面</b>。</div>
+    <div class="refs">${pool.map(p => { const k = W.imgs.indexOf(p), gr = g[p]; return `<button type="button" class="ref" data-do="pickImg" data-p="${esc(p)}" aria-pressed="${k >= 0}"><img class="th" src="${img(p)}" alt="">${k >= 0 ? `<span class="n">${k === 0 ? '封面' : k + 1}</span>` : ''}<span class="g">${gradePill(gr) || (p === it.photos.detail_1 ? '<span class="pill">实拍</span>' : '')}</span><span class="l">${esc(gr && gr.note ? gr.note : base(p))}</span></button>`; }).join('')}</div>
+    <div class="actions"><button type="button" class="link" data-do="report" data-id="${esc(it.id)}">看出图报告</button>
+      <button type="button" class="primary big" data-do="toWrite" ${W.imgs.length ? '' : 'disabled'}>用选中的 ${W.imgs.length} 张图写文案 →</button></div>`;
+}
+function libPage() {
+  const groups = Object.keys(D.styles).map(k => [k, D.styles[k], D.lock.refs.filter(r => refStyle(r) === k)]);
+  return `<div class="stack">
+    <div class="panel pad stack"><div class="row between"><h2>模特</h2></div>
+      <div class="hint">每位模特在锁图文件夹 <span class="num">${esc(D.lock.path)}/library/models/</span> 下建一个以名字命名的文件夹，放 <b>face_1_front</b> 正脸、<b>face_2_half</b> 半侧、<b>face_3_profile</b> 全侧、<b>face_closeup</b> 特写、<b>body_1_front</b> 全身；profile.md 写清「160/48」这样的身高体重。缺哪个角度，那个角度的图最容易不像。</div>
+      <div class="models">${D.lock.models.length ? D.lock.models.map(m => modelCard(m, false)).join('') : '<div class="empty">还没有模特。</div>'}</div></div>
+    ${groups.map(([k, name, list]) => `<div class="panel pad stack"><div class="row between"><h2>参考图 · ${esc(name)} <span class="small muted">${list.length} 张</span></h2>
+        <button type="button" data-do="uploadRef" data-style="${k}">＋ 上传到「${esc(name)}」</button></div>
+      ${k === 'mirror' ? '<div class="small muted">刷到想模仿的对镜自拍就存进来：试衣镜、电梯镜、卧室全身镜，手机挡脸的最好用。</div>' : k === 'street' ? '<div class="small muted">街角走路、回头、过马路、靠墙这类抓拍感的街拍。竖图最好，横图会被裁掉两边。</div>' : ''}
+      <div class="refs">${list.map(r => `<div class="ref refbox"><img class="th" src="${img(r)}" alt=""><button type="button" class="x ghost danger" data-do="delRef" data-ref="${esc(r)}" aria-label="移除">×</button>
+        <select data-refstyle="${esc(r)}" aria-label="风格">${Object.keys(D.styles).map(s => `<option value="${s}" ${s === k ? 'selected' : ''}>${esc(D.styles[s])}</option>`).join('')}</select><span class="l">${esc(stem(r))}</span></div>`).join('') || '<div class="empty">这组还没有图。</div>'}</div></div>`).join('')}
+  </div>`;
+}
+
+// ================================================================ 第 2 块 文案
+function pageCopy(sub) {
+  const R = mine(D.reviews).filter(r => ['todo', 'rejected'].includes(draftState(r))).sort((a, b) => (draftState(a) === 'rejected') - (draftState(b) === 'rejected') || b.id - a.id);
+  const fresh = UI.seen ? R.filter(r => !UI.seen.has(String(r.id))) : [];
+  UI.seen = new Set(mine(D.reviews).map(r => String(r.id)));
+  if (fresh.length) UI.review = String(fresh[0].id);
+  if (!R.some(r => String(r.id) === String(UI.review))) UI.review = R.length ? String(R[0].id) : '';
+  const left = `<div class="left"><div class="lh"><span>待审文案 ${R.filter(r => draftState(r) === 'todo').length} 篇</span></div>${R.map(r => { const st = draftState(r); return `<button type="button" class="q" data-do="pickReview" data-id="${r.id}" aria-current="${sub === 'review' && String(r.id) === UI.review}"><b>${esc(r.title || '（无标题）')}</b><span class="pill ${DSTATE[st][1]}">${DSTATE[st][0]}</span> <span class="small muted">${esc(itemName(r.item))}</span></button>`; }).join('') || '<div class="empty">没有要审的稿。</div>'}</div>`;
+  if (sub !== 'review') return `<div class="panel"><div class="stack">${sub === 'topic' ? topicPage() : sub === 'write' ? writePage() : setPage()}</div></div>`;
+  return `<div class="two">${left}<div class="panel"><div class="stack">${reviewPage(R)}</div></div></div>`;
+}
+function topicPage() {
+  const T = myTopics(), un = T.filter(t => t.status === 'unused'), grid = D.topicGrid[String(UI.acc)] || {};
+  const job = activeJobs().find(j => j.kind === 'topics' && String(j.params.account) === String(UI.acc));
+  const nodes = upcomingNodes();
+  const src = t => t.source === 'manual' ? '自己加的' : t.item ? `${itemName(t.item) || '某款'} · 填完痛点自动出` : `${fmtD(t.createdAt)} AI 出`;
+  const row = t => `<div class="trow ${t.status}"><span class="pill ${t.status === 'unused' ? 'warn' : ''}">${t.status === 'unused' ? '没用' : '用过'}</span>
+    <div class="tx">${esc(t.text)}<div class="meta">${esc([[t.scene, t.body].filter(Boolean).join(' × '), src(t), t.status === 'used' && (t.drafts || []).length ? `写成了 ${t.drafts.length} 篇` : '', t.why].filter(Boolean).join(' · '))}</div></div>
+    <div class="acts">${t.status === 'unused' ? `<button type="button" data-do="useTopic" data-id="${esc(t.id)}">写这条 →</button>` : `<button type="button" class="ghost" data-do="unuseTopic" data-id="${esc(t.id)}">标回没用</button>`}
+    <button type="button" class="ghost danger" data-do="delTopic" data-id="${esc(t.id)}" aria-label="删除这条选题">×</button></div></div>`;
+  return `<div class="row between"><h2>${esc((acc() || {}).name || '')} · 还有 <span class="num">${un.length}</span> 条没用 <span class="small muted" style="font-weight:400">用过 ${T.length - un.length} 条</span></h2>
+      <div class="row"><select id="tpNode" style="width:auto"><option value="">不限节点</option>${nodes.map(n => `<option value="${esc(n.name)}">${esc(n.name)}（${n.days} 天后）</option>`).join('')}</select>
+      <button type="button" class="primary" data-do="genTopics" ${job ? 'disabled' : ''}>AI 联网出 10 条</button></div></div>
+    ${job ? busyHint(`${esc(job.title)}：AI 先联网搜最近真实在问的痛点，再按场景 × 身材铺开，大约 3–5 分钟。`) : ''}
+    ${un.length < 5 && !job ? '<div class="hint warn">没用的选题不到 5 条了，补一批吧。</div>' : ''}
+    <div class="sec"><div class="h"><h3>场景 × 身材</h3><span class="small muted">数字是还没用的选题数；虚线格是空的，AI 出题会先补这些</span></div>
+    <div style="overflow-x:auto"><table class="grid"><tr><th></th>${F().bodies.map(b => `<th>${esc(b)}</th>`).join('')}</tr>
+      ${F().scenes.map(sc => `<tr><th>${esc(sc)}</th>${F().bodies.map(b => { const n = (grid[sc] || {})[b] || 0; return `<td class="${n ? (n >= 3 ? 'n3' : n === 2 ? 'n2' : '') : 'zero'}">${n || '—'}</td>`; }).join('')}</tr>`).join('')}</table></div></div>
+    <div class="sec"><div class="h"><h3>选题</h3></div>
+    <div class="addline"><input id="tpText" placeholder="自己加一条选题（≤25 字），例如：梨形身材的毛毛外套怎么选" maxlength="25">
+      <select id="tpScene" style="width:auto"><option value="">场景</option>${F().scenes.map(x => `<option>${esc(x)}</option>`).join('')}</select>
+      <select id="tpBody" style="width:auto"><option value="">身材</option>${F().bodies.map(x => `<option>${esc(x)}</option>`).join('')}</select>
+      <button type="button" data-do="addTopic">加入</button></div>
+    <div class="tlist">${T.map(row).join('') || '<div class="empty">选题库是空的。点右上「AI 联网出 10 条」，或在新款资料里填好材质和痛点。</div>'}</div></div>`;
+}
+function reviewPage(R) {
+  const r = R.find(x => String(x.id) === UI.review);
+  if (!r) return '<div class="empty">没有待审的稿。到「写新的一篇」，或在「产品图 › 出图」里打开「出完自动写文案」。</div>';
+  const st = draftState(r), c = checkDraft(r), g = allGrades();
+  const cands = Array.from(new Set([r.title].concat(r.titles || []))).filter(Boolean);
+  const imgs = r.images || [];
+  const checks = c.errs.map(e => `<span class="pill bad">${esc(e)}</span>`).join(' ') + ' ' + c.warns.map(e => `<span class="pill warn">${esc(e)}</span>`).join(' ');
+  return `${st === 'rejected' ? '<div class="notice bad"><b>这篇已驳回。</b>改好点「保存」就回到待审。</div>' : ''}
+    <div class="row between"><div class="row">${imgs.map(p => `<a href="${img(p)}" target="_blank" rel="noopener"><img src="${img(p)}" alt="" style="width:36px;height:48px;object-fit:cover;border-radius:6px;background:var(--soft);display:block"></a>`).join('') || '<span class="pill bad">没有图</span>'}
+      <span class="small muted">配的 ${imgs.length} 张图（看着写的，封面和顺序在「发布」里调）${imgs.some(p => (g[p] || {}).grade === 'B') ? ' · 有 B 级图' : ''}</span></div>
+      ${c.ok && !c.warns.length ? `<span class="pill good">无违规词 · ${(r.tags || []).length} 个话题 · ${len(r.body)} 字 · 写了尺码</span>` : `<span>${checks}</span>`}</div>
+    <div class="sec titles"><h3>挑一个标题 <span class="small muted" style="font-weight:400">AI 给 3 个方向：身材痛点 / 场景 / 细节钩子</span></h3>${cands.map(t => `<label><input type="radio" name="title" value="${esc(t)}" ${t === r.title ? 'checked' : ''}> ${esc(t)} <span class="small muted" style="margin-left:auto">${len(t)} 字</span></label>`).join('')}
+      <label><input type="radio" name="title" value="__own"> <input id="ownTitle" placeholder="自己写一个（≤18 字）" style="border:0;padding:0;background:none"></label></div>
+    <div class="row" style="flex-wrap:nowrap"><input id="rwNote" placeholder="说一句怎么改，AI 来改：例如 开头改成提问；第三段太像广告" aria-label="让 AI 改"><button type="button" data-do="rewrite" data-id="${r.id}">让 AI 改</button><button type="button" class="ghost" data-do="paste">粘贴 GPT 写的</button></div>
+    <label class="f">正文 <span class="num" id="bodyCount" style="align-self:flex-end;margin-top:-20px">${len(r.body)} / 888</span><textarea id="rBody" rows="9">${esc(r.body)}</textarea></label>
+    <label class="f">话题（空格分开，${esc((acc() || {}).tagMix || '款式 3 · 人群 2 · 场景 2 · 季节 2')}）<input id="rTags" value="${esc((r.tags || []).join(' '))}"></label>
+    <div class="actions"><div class="row"><button type="button" class="ghost danger" data-do="reject" data-id="${r.id}">驳回</button><button type="button" class="ghost danger" data-do="delDraft" data-id="${r.id}">删除</button><button type="button" data-do="saveDraft" data-id="${r.id}">保存</button></div>
+      <button type="button" class="primary big" data-do="finalize" data-id="${r.id}" ${c.ok ? '' : 'disabled title="先改掉红色问题"'}>文案定稿，去发布 →</button></div>`;
+}
+function readEdits(r) {
+  const edits = {};
+  const tsel = document.querySelector('input[name=title]:checked');
+  const title = tsel ? (tsel.value === '__own' ? $('#ownTitle').value.trim() : tsel.value) : r.title;
+  if (title !== r.title) edits.title = title;
+  const body = $('#rBody').value; if (body !== r.body) edits.body = body;
+  const tags = $('#rTags').value.split(/[\s,，#、]+/).filter(Boolean); if (tags.join(' ') !== (r.tags || []).join(' ')) edits.tags = tags;
+  return {edits, title, body, tags};
+}
+function writePage() {
+  const items = myItems().filter(i => lastImages(i).length);
+  if (!items.length) return '<div class="empty">还没有出好图的新款。先到「产品图」出图，出好的图在这里挑着写。</div>';
+  if (!items.some(i => i.id === W.item)) { W.item = items[0].id; W.imgs = []; }
+  const it = items.find(i => i.id === W.item), g = it.grades || {};
+  const pool = lastImages(it).concat(it.photos.detail_1 ? [it.photos.detail_1] : []);
+  W.imgs = W.imgs.filter(p => pool.includes(p));
+  if (!W.imgs.length) W.imgs = lastImages(it).filter(p => (g[p] || {}).grade !== 'C');
+  const un = unusedTopics();
+  if (W.topic === null) { const t = un.find(t => t.item === it.id); W.topic = t ? t.id : ''; }
+  if (W.topic && !un.some(t => t.id === W.topic)) W.topic = '';
+  const job = activeJobs().find(j => j.kind === 'write' && j.params && j.params.item === it.id);
+  const order = un.slice().sort((a, b) => (b.item === it.id) - (a.item === it.id));
+  return `${job ? busyHint('正在写这款的文案，写好后出现在「审稿」。') : ''}
+    <div class="sec"><div class="h"><h3>写哪件、用哪些图</h3><span class="small muted">点图选择，第 1 张是封面</span></div>
+      <select id="wItem" style="width:auto">${items.map(i => `<option value="${esc(i.id)}" ${i.id === it.id ? 'selected' : ''}>${esc(i.name)}（${lastImages(i).length} 张图）</option>`).join('')}</select>
+      <div class="refs">${pool.map(p => { const k = W.imgs.indexOf(p), gr = g[p]; return `<button type="button" class="ref" data-do="pickImg" data-p="${esc(p)}" aria-pressed="${k >= 0}"><img class="th" src="${img(p)}" alt="">${k >= 0 ? `<span class="n">${k === 0 ? '封面' : k + 1}</span>` : ''}<span class="g">${gradePill(gr) || (p === it.photos.detail_1 ? '<span class="pill">实拍</span>' : '')}</span></button>`; }).join('')}</div></div>
+    <div class="sec"><div class="h"><h3>选题</h3><span class="small muted">从选题库挑，写完自动标为已用</span></div>
+      <select id="wTopic"><option value="">不用选题，按这款自己找角度</option>${order.map(t => `<option value="${esc(t.id)}" ${t.id === W.topic ? 'selected' : ''}>${esc(t.text)}${t.item === it.id ? '（和这款最贴）' : ''}</option>`).join('')}</select></div>
+    <div class="sec"><h3>这款发几篇</h3><div class="opt two-col">
+      <label><input type="radio" name="split" value="1" ${W.split === 1 ? 'checked' : ''}><span><b>1 篇单品种草</b> <span class="small muted">选中的图全用</span></span></label>
+      <label><input type="radio" name="split" value="2" ${W.split === 2 ? 'checked' : ''}><span><b>拆成 2 篇</b> <span class="small muted">身材尺码一篇、场景搭配一篇；图分开用，隔 3 天以上发</span></span></label></div></div>
+    <label class="row small" style="flex-wrap:nowrap;align-items:flex-start;gap:8px"><input type="checkbox" id="coverText" ${W.coverText ? 'checked' : ''} style="width:auto"> 封面加一行 ≤12 字大字（原图保留）</label>
+    ${it.modelSize ? `<div class="small muted">文案会写清：${esc(it.modelSize)}，并给选码建议。${it.pain ? `开头会点出痛点「${esc(it.pain)}」。` : ''}</div>` : `<div class="hint warn">还没填「模特身高体重和穿的码」，女装笔记最常被问的就是这个。<button type="button" class="link" data-do="goItem" data-id="${esc(it.id)}">去填</button></div>`}
+    <label class="f">补充要求（可不填）<input id="writeNote" placeholder="例：口吻像闺蜜聊天；重点讲不扎、不起球"></label>
+    <div class="actions"><span class="small muted">写好后进「审稿」，不会自动发</span><button type="button" class="primary big" data-do="write" data-id="${esc(it.id)}" ${W.imgs.length && !job ? '' : 'disabled'}>交给 AI 写</button></div>`;
+}
+function setPage() {
+  const a = acc() || {};
+  const items = myItems();
+  if (!items.some(i => i.id === W.trialItem)) W.trialItem = items.length ? items[0].id : '';
+  const trial = D.jobs.find(j => j.kind === 'trial' && String(j.params.account) === String(UI.acc));
+  const fld = (k, l, ph, area) => `<label class="f">${l}${area ? `<textarea id="cs-${k}" rows="2" placeholder="${esc(ph)}">${esc(a[k] || '')}</textarea>` : `<input id="cs-${k}" value="${esc(a[k] || '')}" placeholder="${esc(ph)}">`}</label>`;
+  let tr = '<div class="small muted">用左边的设定和一件新款试写一篇，不进审稿。觉得不对就回左边改。</div>';
+  if (trial && (trial.status === 'queued' || trial.status === 'running')) tr = busyHint('正在试写，大约 1–2 分钟。');
+  else if (trial && trial.status === 'done' && trial.trial) tr = `<div class="small muted">${fmtDT(trial.endedAt || trial.createdAt)} 试写的：</div><div class="hint" style="white-space:pre-wrap;color:var(--ink)"><b>${esc(trial.trial.title)}</b>\n${esc(trial.trial.body)}\n<span class="muted">${esc((trial.trial.tags || []).map(t => '#' + t).join(' '))}</span></div>`;
+  else if (trial && trial.status === 'failed') tr = `<div class="hint bad">上次试写没成功：${esc(trial.summary || '')}</div>`;
+  return `<div class="two" style="grid-template-columns:minmax(0,1fr) minmax(0,300px)"><div class="stack">
+      <h2>${esc(a.name || '')}</h2>
+      ${fld('position', '账号定位（一句话）', '小个子女生的通勤和约会穿搭')}${fld('tone', '口吻', '像闺蜜聊天，少用感叹号')}
+      ${fld('must', '每篇必写', '模特身高体重和穿的码 + 一句选码建议', true)}${fld('banned', '自己再加的禁用词（顿号分开）', '便宜、清仓')}
+      ${fld('tagMix', '话题配比', '款式 3、人群 2、场景 2、季节 2')}
+      <div class="row"><button type="button" class="primary" data-do="saveCopy">保存设定</button></div>
+      <details id="promptBox"><summary class="small muted">查看实际发给 AI 的完整提示词（只读）</summary><pre class="log" id="promptText">点开时读取…</pre></details></div>
+    <div class="stack" style="background:var(--soft2);border:1px solid var(--line);border-radius:var(--r);padding:14px"><h3>试写一篇看效果</h3>
+      ${items.length ? `<select id="trialItem">${items.map(i => `<option value="${esc(i.id)}" ${i.id === W.trialItem ? 'selected' : ''}>${esc(i.name)}</option>`).join('')}</select>
+      <button type="button" data-do="trial" ${trial && ['queued', 'running'].includes(trial.status) ? 'disabled' : ''}>按现在的设定试写</button>` : '<div class="small muted">先在「产品图」上新一款。</div>'}${tr}</div></div>`;
+}
+
+// ================================================================ 第 3 块 发布
+function pagePub(sub) {
+  if (sub === 'cal') return calPage();
+  if (sub === 'login') return loginPage();
+  const R = mine(D.reviews).filter(r => ['ready', 'sched'].includes(draftState(r))).sort((a, b) => (draftState(a) === 'sched') - (draftState(b) === 'sched') || b.id - a.id);
+  if (!R.some(r => String(r.id) === String(UI.pubSel))) UI.pubSel = R.length ? String(R[0].id) : '';
+  const left = `<div class="left"><div class="lh"><span>定稿的 ${R.length} 篇</span></div>${R.map(r => { const st = draftState(r); const s = D.schedule.find(x => String(x.review) === String(r.id) && ['pending', 'running'].includes(x.status)); return `<button type="button" class="q" data-do="pickPub" data-id="${r.id}" aria-current="${String(r.id) === UI.pubSel}"><b>${esc(r.title)}</b><span class="pill ${DSTATE[st][1]}">${s ? fmtDT(s.at) + ' 待发' : DSTATE[st][0]}</span></button>`; }).join('') || '<div class="empty">没有定稿的稿。</div>'}</div>`;
+  const r = R.find(x => String(x.id) === UI.pubSel);
+  return `<div class="two">${left}<div class="panel"><div class="stack">${r ? queuePage(r) : '<div class="empty">没有等着发的稿。在「文案 › 审稿」里点「文案定稿，去发布」，就会出现在这里。</div>'}</div></div></div>`;
+}
+function whenOpts() {
+  const ns = (D.nextSlot || {})[String(UI.acc)];
+  return (ns ? [{k: 'auto', l: '自动：' + fmtDT(ns), at: 'auto', show: ns}] : []).concat([{k: 'now', l: '立即', at: null}, {k: 'own', l: '自选时间', at: 0}]);
+}
+function queuePage(r) {
+  const st = draftState(r), imgs = r.images || [], g = allGrades();
+  const ri = D.items.find(i => i.id === r.item);
+  const sched = D.schedule.find(s => String(s.review) === String(r.id) && (s.status === 'pending' || s.status === 'running'));
+  if (UI.markFor !== r.id) { UI.markFor = r.id; UI.markAi = D.settings.mark_ai !== false; }
+  const T = whenOpts();
+  if (!UI.when || !T.some(t => t.k === UI.when)) UI.when = T[0].k;
+  const imgRow = `<div class="imgs">${imgs.map((p, i) => `<div class="img"><img class="th" src="${img(p)}" alt="第 ${i + 1} 张">${i === 0 ? '<span class="cv">封面</span>' : ''}<span class="gr">${gradePill(g[p])}</span>
+      ${sched ? '' : `<div class="ops">${i ? `<button type="button" data-do="img" data-op="cover" data-i="${i}" data-id="${r.id}">设为封面</button><button type="button" data-do="img" data-op="left" data-i="${i}" data-id="${r.id}" aria-label="往前挪">←</button>` : ''}${i < imgs.length - 1 ? `<button type="button" data-do="img" data-op="right" data-i="${i}" data-id="${r.id}" aria-label="往后挪">→</button>` : ''}${imgs.length > 1 ? `<button type="button" class="danger" data-do="img" data-op="drop" data-i="${i}" data-id="${r.id}" aria-label="不用这张">×</button>` : ''}</div>`}</div>`).join('')}</div>`;
+  const head = `<div class="ihead"><div><h2>${esc(r.title)}</h2><div class="small muted">${esc(itemName(r.item) || '')}${(r.tags || []).length ? ` · ${(r.tags || []).length} 个话题` : ''} · ${len(r.body)} 字</div></div><button type="button" class="ghost" data-do="backToCopy" data-id="${r.id}" ${sched ? 'hidden' : ''}>文案还要改</button></div>
+    <div class="sec"><div class="h"><h3>图片顺序</h3><span class="small muted">鼠标放到图上调整 · 第 1 张是封面，首图决定点击率</span></div>${imgRow}</div>`;
+  if (sched) return head + `<div class="notice">已排在 <b>${fmtDT(sched.at)}</b>，到点工作台会打开浏览器直接发。那个时间 <b>Mac 要开着、别合盖，工作台要开着</b>。${sched.markAi ? '会勾选「笔记含 AI 合成内容」。' : '不勾选 AI 合成内容。'}</div>
+    <div class="actions"><span></span><button type="button" class="danger" data-do="unsched" data-id="${esc(sched.id)}">取消排期</button></div>`;
+  return head + `<div class="sec"><h3>发布时间</h3><div class="when">${T.map(t => `<button type="button" class="chip" data-do="when" data-k="${t.k}" aria-pressed="${UI.when === t.k}">${esc(t.l)}</button>`).join('')}
+      <input type="datetime-local" id="whenAt" style="width:auto" ${UI.when === 'own' ? '' : 'hidden'} value="${esc(UI.whenAt || '')}"></div></div>
+    <div class="hint" style="line-height:1.8">到点由工作台打开浏览器直接发，不用小红书的定时发布。<b>那个时间 Mac 要开着、别合盖，工作台要开着</b>；有待发的稿时工作台会自动不让 Mac 睡眠。错过了不补发，会进「历史 › 没发出」，点「重新排期」就行。<br>${ri && ri.goods ? `挂商品：<b>${esc(ri.goods)}</b> · ` : ''}同号一天一篇、隔 2 小时 · 不扣点</div>
+    <label class="row small" style="flex-wrap:nowrap;align-items:flex-start;gap:8px"><input type="checkbox" id="markAi" ${UI.markAi ? 'checked' : ''} style="width:auto"> 标注「笔记含 AI 合成内容」<span class="muted">（可关；小红书要求 AI 生成的图要声明，不标有被限流的风险）</span></label>
+    <div class="actions"><button type="button" class="link" data-do="package" data-id="${r.id}">导出发布包，自己在 App 里发</button>
+      <div class="row"><button type="button" data-do="tryFill" data-id="${r.id}">只填不发试一次</button><button type="button" class="primary big" data-do="approve" data-id="${r.id}">确认排期</button></div></div>`;
+}
+async function approveFlow(r) {
+  const w = whenOpts().find(t => t.k === UI.when);
+  let at = w.at;
+  if (w.k === 'own') { at = new Date($('#whenAt').value).getTime(); if (!(at > Date.now())) { toast('选一个以后的时间'); return; } }
+  toast('正在检查小红书登录…');
+  const quote = await api('/api/publish/preview', {account: UI.acc, id: r.id}, true);
+  if (!quote) return;
+  if (quote.ok === false) {
+    if (/扫码/.test(quote.error || '')) openDlg(`<h2>先扫码登录「${esc((acc() || {}).name || '')}」</h2><p style="margin:0">这个号还没在工作台登录，或者登录过期了。点下面的按钮会弹出浏览器，用小红书 App 扫码，扫好再点一次「确认排期」。</p>` + btns('扫码登录'), async () => { await login(UI.acc); });
+    else toast(quote.error || '检查没通过');
+    return;
+  }
+  const when = at ? (at === 'auto' ? w.show : at) : 0, markAi = UI.markAi;
+  openDlg(`<h2>确认发布「${esc(r.title)}」</h2>
+    <div class="notice">${when ? `排在 <b>${fmtDT(when)}</b>，到点工作台打开浏览器直接发。<b>那时 Mac 要开着、工作台要开着。</b>` : '<b>现在就发</b>，浏览器会自己操作，1–2 分钟。'}
+      <br>${markAi ? '勾选' : '不勾选'}「笔记含 AI 合成内容」${quote.goods ? `；挂商品：${esc(quote.goods)}` : ''}；浏览器${(quote.config || {}).browser_visible ? '会弹出窗口，发完自动关' : '在后台运行'}。不扣任何点数。</div>` + btns('确认'),
+  async () => {
+    const j = await api('/api/publish', {account: UI.acc, id: r.id, at, quote: quote.quote, markAi}, true);
+    if (j && j.ok === false) { toast(j.error || '排期失败'); return !/2 小时/.test(j.error || ''); }
+    if (j) toast(!at ? '开始发布，进度在「排期日历」里看' : '已排期 ' + fmtDT(j.entry.at) + '，到点 Mac 要开着');
+    return true;
+  });
+}
+function calPage() {
+  const S = D.schedule.filter(s => String(s.account) === String(UI.acc));
+  const ws = weekStart(UI.week);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const wk = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+  const lab = {pending: '待发', running: '发布中', done: '已发', failed: '没发出', missed: '错过', cancelled: '已取消'};
+  let empty = 0;
+  const days = wk.map((w, i) => {
+    const d0 = ws + i * 864e5, items = S.filter(s => s.at >= d0 && s.at < d0 + 864e5 && s.status !== 'cancelled').sort((a, b) => a.at - b.at);
+    if (!items.length && d0 >= today.getTime()) empty++;
+    return `<div class="day ${d0 === today.getTime() ? 'today' : ''}"><h3>${w}${d0 === today.getTime() ? ' · 今天' : ''}<b>${new Date(d0).getDate()}</b></h3>${items.map(s => { const t = new Date(s.at); return `<button type="button" class="cal ${s.status}" data-do="slot" data-id="${esc(s.id)}"><span class="t">${pad(t.getHours())}:${pad(t.getMinutes())} · ${s.platformAt ? '交给小红书定时（旧）' : lab[s.status] || s.status}</span>${esc(s.title)}</button>`; }).join('')}</div>`;
+  }).join('');
+  const n = upcomingNodes().find(x => x.postBy > Date.now() - 7 * 864e5);
+  const pend = S.filter(s => s.status === 'pending').length;
+  return `<div class="row between" style="margin-bottom:12px"><h2>${UI.week === 0 ? '本周' : `${fmtD(ws)} – ${fmtD(ws + 6 * 864e5)}`}</h2>
+      <div class="row"><button class="ghost" data-do="wk" data-d="-1" type="button">上一周</button><button class="ghost" data-do="wk" data-d="0" type="button">本周</button><button class="ghost" data-do="wk" data-d="1" type="button">下一周</button></div></div>
+    <div class="week">${days}</div>
+    <div class="hint" style="margin-top:14px">${[UI.week === 0 && empty ? `本周还空 ${empty} 天，建议每天 1 篇，女装流量高峰是中午 12 点前后和晚上 7–10 点。` : '',
+      n ? `${fmtD(n.at)}「${esc(n.name)}」还有 ${n.days} 天，相关内容建议 ${fmtD(n.postBy)} 前开始发。` : ''].filter(Boolean).join(' ') || '这一周都排上了。'}</div>
+    ${pend ? `<div class="notice" style="margin-top:10px">有 ${pend} 篇待发：到点工作台开浏览器直接发，Mac 要开着、别合盖。${D.awake ? '现在已经不让 Mac 自己睡眠了。' : ''}</div>` : ''}`;
+}
+function loginPage() {
+  return `<div class="panel pad stack"><div class="small muted">过期了发布会失败，回这里再扫一次。</div>
+    <div class="list">${D.accounts.map(a => `<div class="item"><div class="main row" style="flex-wrap:nowrap"><input data-accname="${esc(a.id)}" value="${esc(a.name)}" aria-label="账号名" style="max-width:220px">
+        ${a.online ? '<span class="pill good">已登录</span>' : '<span class="pill bad">未登录</span>'}<span class="small muted">${a.checkedAt ? '上次检查 ' + fmtDT(a.checkedAt) : '还没检查过'}</span></div>
+      <div class="row"><button type="button" class="ghost" data-do="login" data-id="${esc(a.id)}">扫码登录</button><button type="button" class="ghost" data-do="checkLogin" data-id="${esc(a.id)}">我扫好了</button><button type="button" class="ghost" data-do="renameAcc" data-id="${esc(a.id)}">改名</button></div></div>`).join('')}</div>
+    <div class="row" style="flex-wrap:nowrap"><input id="newAcc" placeholder="再加一个号：写个名字"><button type="button" data-do="addAcc">加一个号</button></div></div>`;
+}
+
+// ================================================================ 第 4 块 历史记录
+function histRows() {
+  const rows = [];
+  for (const a of mine(D.archive)) rows.push({kind: 'pub', at: a.at, type: ['已发布', 'good'], title: a.title, note: `${a.ai === false ? '没标 AI' : a.ai ? '标了 AI 合成' : ''}`, act: a.shot ? `<a href="${img(a.shot)}" target="_blank" rel="noopener">看发布截图</a>` : ''});
+  for (const s of D.schedule.filter(s => String(s.account) === String(UI.acc) && ['failed', 'missed'].includes(s.status))) {
+    const r = D.reviews.find(x => String(x.id) === String(s.review));
+    if (r && r.status === '已发布') continue;
+    rows.push({kind: 'fail', at: s.at, type: [s.status === 'missed' ? '错过了' : '没发出', 'bad'], title: s.title, note: s.error || '',
+      act: s.rescheduled ? '<span class="small muted">已重新排期</span>' : r ? `<button type="button" class="ghost" data-do="reschedule" data-id="${esc(s.id)}">重新排期</button> <button type="button" class="link" data-do="slot" data-id="${esc(s.id)}">看过程</button>` : '<span class="small muted">稿已删</span>'});
+  }
+  for (const r of mine(D.reviews).filter(r => r.status === '驳回')) rows.push({kind: 'fail', at: r.id, type: ['已驳回', 'bad'], title: r.title, note: checkDraft(r, false).errs.join('；'), act: `<button type="button" class="ghost" data-do="editRejected" data-id="${r.id}">改了再审</button>`, noTime: true});
+  for (const j of D.jobs.filter(j => !j.params || !j.params.account || String(j.params.account) === String(UI.acc))) {
+    const st = JOBST[j.status] || [j.status, ''];
+    rows.push({kind: 'ai', at: j.createdAt, type: [JOBKIND[j.kind] || 'AI', st[1] || ''], title: j.title, note: `${st[0]}${j.summary ? ' · ' + j.summary : ''}${j.endedAt && j.startedAt ? ` · ${Math.max(1, Math.round((j.endedAt - j.startedAt) / 60e3))} 分钟` : ''}`,
+      act: `<button type="button" class="link" data-do="log" data-id="${esc(j.id)}">看过程</button>${['queued', 'running'].includes(j.status) ? ` <button type="button" class="link" style="color:var(--bad)" data-do="cancelJob" data-id="${esc(j.id)}">停止</button>` : ''}`});
+  }
+  return rows.sort((a, b) => (b.noTime ? 0 : b.at) - (a.noTime ? 0 : a.at));
+}
+function pageHist(sub) {
+  const s = D.stats[String(UI.acc)] || {};
+  const rows = histRows().filter(r => sub === 'all' || r.kind === sub).slice(0, 80);
+  const stats = sub === 'all' ? `<div class="stats">
+      <button type="button" class="stat" data-do="goSub" data-tab="copy" data-sub="review"><span class="small muted">待审文案</span><b>${s.todo || 0}</b></button>
+      <button type="button" class="stat" data-do="goSub" data-tab="pub" data-sub="cal"><span class="small muted">已排期</span><b>${s.scheduled || 0}</b></button>
+      <div class="stat"><span class="small muted">本月已发</span><b>${s.monthPublished || 0}</b></div>
+      <button type="button" class="stat ${s.failed ? 'bad' : ''}" data-do="goSub" data-tab="hist" data-sub="fail"><span class="small muted">没发出要处理</span><b>${s.failed || 0}</b></button></div>` : '';
+  return `${stats}<div class="panel pad" style="overflow-x:auto;padding-top:6px;padding-bottom:6px"><table class="hist"><tr><th>时间</th><th>类型</th><th>标题和说明</th><th></th></tr>
+    ${rows.map(r => `<tr><td class="t">${r.noTime ? '—' : fmtDT(r.at)}</td><td><span class="pill ${r.type[1]}">${esc(r.type[0])}</span></td><td><b>${esc(r.title)}</b>${r.note ? `<br><span class="small muted">${esc(r.note).slice(0, 200)}</span>` : ''}</td><td>${r.act}</td></tr>`).join('') || '<tr><td colspan="4"><div class="empty">还没有记录。</div></td></tr>'}</table></div>
+    ${sub === 'pub' ? '<div class="small muted" style="margin-top:8px">这一版不回收点赞收藏数据，打开笔记到小红书 App 里看。</div>' : ''}`;
+}
+
+// ---------- 上传
+function readFile(file) { return new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = no; r.readAsDataURL(file); }); }
+async function uploadPhoto(id, slot, file) {
+  if (!file || !/^image\//.test(file.type)) { toast('请选一张图片'); return; }
+  if (file.size > 25e6) { toast('图片太大了，压到 25MB 以内'); return; }
+  toast('上传中…');
+  const j = await api('/api/item/photo', {id, slot, data: await readFile(file)});
+  if (j) toast('已上传');
+}
+function bindDrops() {
+  document.querySelectorAll('.drop[data-slot]').forEach(d => {
+    d.ondragover = e => { e.preventDefault(); d.classList.add('over'); };
+    d.ondragleave = () => d.classList.remove('over');
+    d.ondrop = e => { e.preventDefault(); d.classList.remove('over'); uploadPhoto(d.dataset.id, d.dataset.slot, e.dataTransfer.files[0]); };
+  });
+}
+function readChecks() {
+  return Array.from(document.querySelectorAll('#checks .chk')).map(r => ({level: r.querySelector('select').value, text: r.querySelector('input:not([type=checkbox])').value.trim(), ok: !r.querySelector('input[type=checkbox]') || r.querySelector('input[type=checkbox]').checked})).filter(c => c.text);
+}
+async function uploadRefs(files, style) {
+  let n = 0;
+  for (const f of files) { if (!/^image\//.test(f.type)) continue; const j = await api('/api/ref/upload', {name: f.name, data: await readFile(f), style}); if (j) { n++; if (PICK.style === style && !PICK.refs.includes(j.path)) PICK.refs.push(j.path); } }
+  if (n) { toast(`已上传 ${n} 张参考图`); render(); }
+}
+function parsePasted(text) {
+  // 认 GPT 常见格式：「标题：」「标题1：」、Markdown 粗体和井号、末尾一串 #话题
+  const titles = [], tags = [], body = [];
+  for (let line of String(text || '').replace(/\r/g, '').split('\n')) {
+    line = line.replace(/\*\*/g, '').replace(/^\s{0,3}#{1,6}\s+/, '').trimEnd();
+    const t = line.match(/^\s*(?:备选)?标题\s*\d*\s*[:：]\s*(.+)$/);
+    if (t) { titles.push(t[1].replace(/^[「“"]|[」”"]$/g, '').trim()); continue; }
+    const found = line.match(/#[^\s#\[]+/g);
+    if (found && line.replace(/#[^\s#]+(\[话题\])?#?/g, '').replace(/^\s*(话题|标签)\s*[:：]/, '').trim() === '') { found.forEach(x => tags.push(x.slice(1))); continue; }
+    if (/^\s*(正文|话题|标签)\s*[:：]\s*$/.test(line)) continue;
+    body.push(line.replace(/^\s*正文\s*[:：]\s*/, '').replace(/^\s{0,3}[-*]\s+/, ''));
+  }
+  let b = body.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  if (!titles.length) { const first = b.split('\n')[0]; if (first && len(first) <= 20 && b.includes('\n')) { titles.push(first.trim()); b = b.slice(first.length).trim(); } }
+  return {titles: Array.from(new Set(titles)).slice(0, 5), tags: Array.from(new Set(tags)).slice(0, 10), body: b};
+}
+
+// ---------- 弹窗
+function openDlg(html, onOk, after) {
+  const dlg = $('#dlg'), f = $('#dlgForm');
+  f.innerHTML = html;
+  f.onsubmit = async ev => {
+    const v = ev.submitter ? ev.submitter.value : '';
+    if (v === 'cancel') return;
+    ev.preventDefault();
+    const bs = f.querySelectorAll('button'); bs.forEach(b => b.disabled = true);
+    const ok = await onOk(f, v);
+    bs.forEach(b => b.disabled = false);
+    if (ok !== false) dlg.close();
+  };
+  dlg.showModal();
+  if (after) after(f);
+}
+const btns = (ok, extra = '') => `<div class="row" style="justify-content:flex-end">${extra}<button value="cancel" formnovalidate>取消</button><button class="primary" value="ok">${ok}</button></div>`;
+const closeBtn = '<div class="row" style="justify-content:flex-end"><button value="cancel" formnovalidate>关闭</button></div>';
+const ITEM_KEYS = ['name', 'code', 'category', 'colors', 'sizes', 'modelSize', 'fabric', 'texture', 'pain', 'price', 'fit', 'points', 'goods', 'account'];
+function dlgItem(it = {}) {
+  const fld = (k, l, ph = '', wide = '') => `<label class="f ${wide}">${l}<input id="it-${k}" value="${esc(it[k] || '')}" placeholder="${esc(ph)}"></label>`;
+  openDlg(`<h2>编辑资料</h2><p class="small muted" style="margin:0">文案里的面料、尺码、价格只从这里取，AI 不会自己编。</p><div class="form">
+    ${fld('name', '名称', '例如：灰色长毛翻领外套')}${fld('code', '款号', '例如：CT-2410-02')}
+    <label class="f">品类<select id="it-category">${F().categories.map(c => `<option ${c === it.category ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
+    ${fld('colors', '颜色', '银灰')}${fld('sizes', '尺码', 'S M L')}${fld('modelSize', '模特身高体重和穿的码', '160cm 48kg 穿 M')}
+    ${fld('fabric', '面料成分（按吊牌写）', '羊毛 30% 锦纶 70%', 'wide')}
+    ${fld('texture', '材质手感', '软糯不扎、垂感好')}${fld('pain', '痛点（这款解决什么）', '小个子穿长外套显矮')}
+    ${fld('price', '价格（可不填，不填文案就不提价格）', '')}${fld('fit', '版型和选码建议', '偏大一码，小个子选 S')}
+    ${fld('points', '卖点（真实的才写）', '长毛不扎、不掉毛、可机洗', 'wide')}
+    ${fld('goods', '挂商品（店铺商品 ID，发布时自动挂；没开店就空着）', 'CT-2410-02', 'wide')}
+    <label class="f wide">只给这个账号用<select id="it-account"><option value="">所有账号</option>${D.accounts.map(a => `<option value="${esc(a.id)}" ${String(a.id) === String(it.account) ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}</select></label></div>`
+    + btns('保存', '<button value="del" class="ghost danger" formnovalidate>从工作台移除</button>'),
+  async (f, v) => {
+    if (v === 'del') return !!(await api('/api/item/delete', {id: it.id}));
+    const b = {id: it.id, status: it.status || '在售', topicAccount: UI.acc}; ITEM_KEYS.forEach(k => b[k] = f.querySelector('#it-' + k).value.trim());
+    if (!b.name) { toast('写个名称'); return false; }
+    const j = await api('/api/item/save', b);
+    if (j && j.topicJob) toast('材质和痛点填好了，AI 开始给这款出 5 条选题');
+    return !!j;
+  });
+}
+function dlgNew() {
+  const P = {};
+  const drop = (k, l, tip) => `<div class="slot"><button type="button" class="drop" data-new="${k}">＋ ${l}<br><span class="small">${tip}</span></button></div>`;
+  openDlg(`<h2>上新</h2><p class="small muted" style="margin:0">把照片拖进来就行。AI 会读吊牌填好名称、面料、尺码，再写出图要用的档案，大约 3–5 分钟。</p>
+    <div class="intake">${drop('front', '衣服正面照', '必须，纯色背景平铺或挂拍')}${drop('tag', '吊牌照', '建议，拍清成分和尺码')}</div>
+    <input type="file" id="newFile" accept="image/*" hidden>
+    <label class="f">名称（可不填，AI 会起）<input id="it-name" placeholder="例如：灰色长毛翻领外套"></label>` + btns('交给 AI'),
+  async () => {
+    if (!P.front) { toast('至少放一张衣服正面照'); return false; }
+    const j = await api('/api/item/new', {name: $('#it-name').value.trim(), photos: P, account: ''});
+    if (!j) return false;
+    UI.item = j.item.id; save(); go('img', 'info');
+    toast(j.job ? 'AI 开始读照片和吊牌；你先把材质手感和痛点填上' : '已添加；找不到锁图工作台，先在设置里填好路径');
+    return true;
+  }, f => {
+    const fi = f.querySelector('#newFile');
+    const put = async (k, file) => {
+      if (!file || !/^image\//.test(file.type)) { toast('请选一张图片'); return; }
+      P[k] = await readFile(file);
+      f.querySelector(`[data-new="${k}"]`).innerHTML = `<img src="${P[k]}" alt="">`;
+    };
+    f.querySelectorAll('[data-new]').forEach(b => {
+      b.onclick = e => { e.preventDefault(); fi.dataset.k = b.dataset.new; fi.click(); };
+      b.ondragover = e => { e.preventDefault(); b.classList.add('over'); };
+      b.ondragleave = () => b.classList.remove('over');
+      b.ondrop = e => { e.preventDefault(); b.classList.remove('over'); const fs = Array.from(e.dataTransfer.files); put(b.dataset.new, fs[0]); if (fs[1] && b.dataset.new === 'front' && !P.tag) put('tag', fs[1]); };
+    });
+    fi.onchange = () => { put(fi.dataset.k, fi.files[0]); fi.value = ''; };
+  });
+}
+function dlgSlot(s) {
+  openDlg(`<h2>${esc(s.title)}</h2><p class="small muted" style="margin:0">${fmtDT(s.at)} · ${{pending: '待发', running: '发布中', done: '已发', failed: '没发出', missed: '错过', cancelled: '已取消'}[s.status]}${s.markAi === false ? ' · 不标 AI' : s.markAi ? ' · 标 AI 合成' : ''}</p>
+    ${s.error ? `<div class="notice bad">${esc(s.error)}</div>` : ''}${(s.log || []).length ? `<pre class="log">${esc(s.log.join('\n'))}</pre>` : ''}`
+    + `<div class="row" style="justify-content:flex-end">${s.status === 'pending' ? '<button value="un" class="danger">取消排期</button>' : ''}${['failed', 'missed', 'cancelled'].includes(s.status) && !s.rescheduled ? '<button value="re" class="primary">重新排期</button>' : ''}<button value="cancel" formnovalidate>关闭</button></div>`,
+  async (f, v) => {
+    if (v === 'un') return !!(await api('/api/unschedule', {id: s.id}));
+    if (v === 're') return reschedule(s.id);
+  });
+}
+async function reschedule(id) {
+  toast('正在检查登录、找下一个空的时段…');
+  const j = await api('/api/reschedule', {id}, true);
+  if (j && j.ok === false) { toast(j.error); if (/重新确认/.test(j.error || '')) { const s = D.schedule.find(x => x.id === id); UI.pubSel = String(s.review); go('pub', 'queue'); } return false; }
+  if (j) toast('已重新排在 ' + fmtDT(j.entry.at));
+  return !!j;
+}
+async function dlgLog(id) {
+  const r = await (await fetch('/api/log?id=' + encodeURIComponent(id))).json();
+  openDlg(`<h2>任务过程</h2><details><summary class="small muted">交给 Codex 的完整指令</summary><pre class="log">${esc(r.prompt)}</pre></details><pre class="log">${esc(r.text || '还没有输出')}</pre>` + closeBtn, () => {});
+}
+function dlgConfirm(title, text, ok, fn) { openDlg(`<h2>${esc(title)}</h2><p style="margin:0">${esc(text)}</p>` + btns(ok), async () => fn()); }
+function dlgSettings() {
+  const s = D.settings;
+  openDlg(`<h2>设置</h2><div class="form">
+    <label class="f wide"><span><input type="checkbox" id="s-ai" ${s.mark_ai !== false ? 'checked' : ''} style="width:auto"> 新排的笔记默认勾选「笔记含 AI 合成内容」（每篇发布时还能单独改）</span></label>
+    <label class="f wide"><span><input type="checkbox" id="s-hl" ${s.xhs_headless ? 'checked' : ''} style="width:auto"> 发布时不弹出浏览器窗口</span></label>
+    <div class="small muted wide">账号的增删改名和扫码在「发布 › 账号登录」；文案口吻在「文案 › 文案设定」。</div>
+    <details class="f wide"><summary class="small muted">高级（一般不用动）</summary><div class="form" style="margin-top:8px">
+      <label class="f wide">锁图工作台文件夹（xhs-lock-studio）<input id="s-lock" value="${esc(s.lock_studio_path)}" placeholder="~/Documents/xhs-lock-studio"></label>
+      <label class="f wide">codex 命令路径（留空自动找）<input id="s-cx" value="${esc(s.codex_path)}" placeholder="/Applications/Codex.app/Contents/Resources/codex"></label>
+      <label class="f wide">codex 参数<input id="s-args" value="${esc(s.codex_args)}"></label>
+      <label class="f">到点没发出去，超过多久就不补发（分钟）<input id="s-grace" type="number" min="10" value="${esc(s.late_grace_min)}"></label></div></details></div>` + btns('保存'),
+  async f => !!(await api('/api/settings', {lock_studio_path: f.querySelector('#s-lock').value.trim(), codex_path: f.querySelector('#s-cx').value.trim(), codex_args: f.querySelector('#s-args').value.trim(), late_grace_min: Number(f.querySelector('#s-grace').value) || 30, mark_ai: f.querySelector('#s-ai').checked, xhs_headless: f.querySelector('#s-hl').checked})));
+}
+async function login(aid) {
+  const j = await api('/api/xhs/login', {account: aid || UI.acc});
+  if (j) toast(D.demo ? '演示模式：已当作扫好了' : '浏览器已经弹出来了，用小红书 App 扫码，扫好点「我扫好了」');
+}
+
+// ---------- 事件
+$('#big').onclick = e => { const b = e.target.closest('[data-tab]'); if (b) go(b.dataset.tab, b.dataset.sub); };
+$('#subm').onclick = e => { const b = e.target.closest('[data-sub]'); if (b) go(UI.tab, b.dataset.sub); };
+$('#online').onclick = () => go('pub', 'login');
+$('#acc').onchange = e => { UI.acc = e.target.value; W.topic = null; save(); render(); };
+$('#btnSettings').onclick = dlgSettings;
+$('#aiBtn').onclick = () => go('hist', 'ai');
+$('#refFile').onchange = e => { uploadRefs(Array.from(e.target.files), e.target.dataset.style || 'other'); e.target.value = ''; };
+$('#photoFile').onchange = e => { if (e.target.files[0]) uploadPhoto(e.target.dataset.id, e.target.dataset.slot, e.target.files[0]); e.target.value = ''; };
+document.addEventListener('change', e => {
+  const t = e.target;
+  if (t.name === 'face') { PICK.face = t.value; render(); }
+  if (t.name === 'split') W.split = Number(t.value);
+  if (t.id === 'coverText') W.coverText = t.checked;
+  if (t.id === 'autoWrite') { PICK.autoWrite = t.checked; render(); }
+  if (t.id === 'autoSplit') PICK.split = t.checked ? 2 : 1;
+  if (t.id === 'whenAt') UI.whenAt = t.value;
+  if (t.id === 'markAi') UI.markAi = t.checked;
+  if (t.id === 'wItem') { W.item = t.value; W.imgs = []; W.topic = null; t.blur(); render(); }
+  if (t.id === 'wTopic') W.topic = t.value;
+  if (t.id === 'trialItem') W.trialItem = t.value;
+  if (t.dataset && t.dataset.refstyle) api('/api/ref/style', {path: t.dataset.refstyle, style: t.value}).then(j => j && toast('已移到「' + D.styles[t.value] + '」'));
+});
+document.addEventListener('toggle', async e => {
+  if (e.target.id !== 'promptBox' || !e.target.open) return;
+  let j = null;
+  try { j = await (await fetch('/api/prompt/preview', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({account: UI.acc, item: W.trialItem})})).json(); } catch (err) {}
+  const pre = $('#promptText'); if (pre) pre.textContent = j && j.prompt ? j.prompt : (j && j.error) || '读不到';
+}, true);
+document.addEventListener('click', async e => {
+  const drop = e.target.closest('.drop[data-slot]');
+  if (drop) { const fi = $('#photoFile'); fi.dataset.id = drop.dataset.id; fi.dataset.slot = drop.dataset.slot; fi.click(); return; }
+  const b = e.target.closest('[data-do]'); if (!b || b.closest('dialog')) return;
+  const id = b.dataset.id, r = D.reviews.find(x => String(x.id) === String(id)), it = D.items.find(i => i.id === id);
+  switch (b.dataset.do) {
+    case 'goSub': go(b.dataset.tab, b.dataset.sub); break;
+    case 'goLogin': go('pub', 'login'); break;
+    case 'goItem': UI.item = id; go('img', 'info'); break;
+    // 产品图
+    case 'addItem': dlgNew(); break;
+    case 'editItem': dlgItem(it); break;
+    case 'pickItem': UI.item = id; W.item = ''; save(); render(); break;
+    case 'saveInfo': {
+      const body = {status: it.status || '在售', topicAccount: UI.acc};
+      ITEM_KEYS.forEach(k => body[k] = it[k] || ''); body.id = it.id;
+      ['texture', 'pain', 'modelSize', 'price', 'goods'].forEach(k => body[k] = $('#if-' + k).value.trim());
+      document.activeElement.blur();
+      const j = await api('/api/item/save', body);
+      if (j) toast(j.topicJob ? '已保存。材质和痛点填好了，AI 开始给这款出 5 条选题' : '已保存');
+      break; }
+    case 'spec': { const j = await api('/api/job', {kind: 'spec', params: {item: id}}); if (j) toast('已交给 AI 写档案，大约 3–5 分钟'); break; }
+    case 'addCheck': { const box = $('#checks'); box.insertAdjacentHTML('beforeend', chkRow({level: '必过', text: ''}, box.children.length, true)); box.lastElementChild.querySelector('input:not([type=checkbox])').focus(); break; }
+    case 'delCheck': b.closest('.chk').remove(); break;
+    case 'viewSpec': openDlg(`<h2>完整档案</h2><pre class="log">${esc(it.specText || '')}</pre><p class="small muted" style="margin:0">要改大段内容，直接编辑 ${esc(it.dir)}/spec.md。</p>` + closeBtn, () => {}); break;
+    case 'confirmSpec': {
+      const cs = readChecks();
+      if (!cs.some(c => c.level === '必过')) { toast('至少留一条「必过」'); break; }
+      const unsure = cs.filter(c => !c.ok).length;
+      if (unsure) { $('#chkLeft').textContent = `还有 ${unsure} 条黄色的没对着实物看`; toast(`还有 ${unsure} 条黄色的没核对`); break; }
+      if (await api('/api/item/checks', {id, checks: cs.map(({level, text}) => ({level, text})), confirmed: true})) go('img', 'shoot');
+      break; }
+    case 'style': { const cur = D.items.find(i => i.id === UI.item); if (cur) initPick(cur, b.dataset.k); render(); break; }
+    case 'pickModel': PICK.model = b.dataset.name; render(); break;
+    case 'pickRef': { const i = PICK.refs.indexOf(b.dataset.ref); if (i >= 0) PICK.refs.splice(i, 1); else PICK.refs.push(b.dataset.ref); render(); break; }
+    case 'uploadRef': { const fi = $('#refFile'); fi.dataset.style = b.dataset.style; fi.click(); break; }
+    case 'delRef': dlgConfirm('从参考图库移除？', '图会挪到 references/_removed 文件夹，要找回去那里拿。', '移除', () => api('/api/ref/delete', {path: b.dataset.ref})); break;
+    case 'lock': {
+      const params = {item: id, face: PICK.face, model: PICK.model, refs: PICK.refs, style: PICK.style, note: ($('#lockNote') || {}).value || ''};
+      if (PICK.autoWrite && UI.acc) params.autoWrite = {account: UI.acc, count: PICK.split, coverText: true};
+      const j = await api('/api/job', {kind: 'lock', params});
+      if (j) toast(`已开始出图，约 ${j.job.estimateMin} 分钟${params.autoWrite ? '，出完自动写文案' : ''}`);
+      break; }
+    case 'report': { const lj = (it.lockJobs || [])[0]; openDlg(`<h2>出图报告</h2><p class="small muted" style="margin:0">${esc(lj ? lj.dir : '')}</p><pre class="log">${esc(lj && lj.report ? lj.report : '还没有报告')}</pre>` + closeBtn, () => {}); break; }
+    case 'pickImg': { const p = b.dataset.p, i = W.imgs.indexOf(p); if (i >= 0) W.imgs.splice(i, 1); else W.imgs.push(p); render(); break; }
+    case 'toWrite': W.topic = null; go('copy', 'write'); break;
+    // 文案
+    case 'genTopics': { const j = await api('/api/job', {kind: 'topics', params: {account: UI.acc, count: 10, node: ($('#tpNode') || {}).value || ''}}); if (j) toast('AI 开始联网找痛点出选题，大约 3–5 分钟'); break; }
+    case 'addTopic': {
+      const text = $('#tpText').value.trim(); if (!text) { $('#tpText').focus(); break; }
+      document.activeElement.blur();
+      if (await api('/api/topic', {action: 'add', account: UI.acc, text, scene: $('#tpScene').value, body: $('#tpBody').value})) toast('已加入选题库');
+      break; }
+    case 'delTopic': dlgConfirm('删掉这条选题？', (D.topics.find(t => t.id === id) || {}).text || '', '删掉', () => api('/api/topic', {action: 'delete', id})); break;
+    case 'unuseTopic': api('/api/topic', {action: 'unuse', id}); break;
+    case 'useTopic': {
+      const t = D.topics.find(x => x.id === id);
+      if (t.item && myItems().some(i => i.id === t.item && lastImages(i).length)) { if (W.item !== t.item) W.imgs = []; W.item = t.item; }
+      W.topic = id; go('copy', 'write'); break; }
+    case 'pickReview': UI.review = id; go('copy', 'review'); break;
+    case 'saveDraft': {
+      const x = readEdits(r); document.activeElement.blur();
+      if (!Object.keys(x.edits).length && r.status !== '驳回') { toast('没有改动'); break; }
+      if (await api('/api/review', {account: UI.acc, id, action: 'save', title: x.title, body: x.body, tags: x.tags})) toast('已保存');
+      break; }
+    case 'finalize': {
+      const x = readEdits(r), c = checkDraft({...r, title: x.title, body: x.body, tags: x.tags});
+      if (!c.ok) { toast('先改掉：' + c.errs.join('；')); break; }
+      document.activeElement.blur();
+      if (Object.keys(x.edits).length && !(await api('/api/review', {account: UI.acc, id, action: 'save', ...x.edits}))) break;
+      if (!(await api('/api/review', {account: UI.acc, id, action: 'ready'}))) break;
+      UI.pubSel = String(id); go('pub', 'queue'); toast('文案定稿了，调好封面和时间就能排期');
+      break; }
+    case 'reject': dlgConfirm('驳回这篇？', r.title, '驳回', () => api('/api/review', {account: UI.acc, id, action: 'reject'})); break;
+    case 'delDraft': dlgConfirm('删除这篇稿？', `「${r.title}」删除后找不回来。`, '删除', () => api('/api/review', {account: UI.acc, id, action: 'delete'})); break;
+    case 'rewrite': {
+      const note = ($('#rwNote') || {}).value.trim();
+      if (!note) { $('#rwNote').focus(); toast('先写一句怎么改'); break; }
+      document.activeElement.blur();
+      if (await api('/api/review', {account: UI.acc, id, action: 'rewrite', note})) toast('已交给 AI 改，改好这里会自动更新');
+      break; }
+    case 'paste': openDlg(`<h2>粘贴 GPT 写的文案</h2><p class="small muted" style="margin:0">把 ChatGPT 或 Codex 里写好的整段贴进来，会自动拆成标题、正文和话题，填进当前这篇；保存前还能再改。</p><label class="f">文案<textarea id="pasteText" rows="10" required></textarea></label>` + btns('拆开填进去'),
+      async f => {
+        const x = parsePasted(f.querySelector('#pasteText').value);
+        if (!x.body) { toast('没认出正文'); return false; }
+        $('#rBody').value = x.body; $('#bodyCount').textContent = `${len(x.body)} / 888`;
+        if (x.tags.length) $('#rTags').value = x.tags.join(' ');
+        if (x.titles.length) {
+          const box = document.querySelector('.titles');
+          x.titles.forEach(t => box.insertAdjacentHTML('beforeend', `<label><input type="radio" name="title" value="${esc(t)}"> ${esc(t)} <span class="small muted" style="margin-left:auto">${len(t)} 字 · 粘贴的</span></label>`));
+          box.querySelector(`input[value="${CSS.escape(x.titles[0])}"]`).checked = true;
+        }
+        toast('已填进去，看一眼没问题点「保存」或「文案定稿」');
+      }); break;
+    case 'write': {
+      if (!UI.acc) { toast('先选账号'); break; }
+      const j = await api('/api/job', {kind: 'write', params: {account: UI.acc, item: id, images: W.imgs, count: W.split, coverText: W.coverText, topic: W.topic || '', note: ($('#writeNote') || {}).value || ''}});
+      if (j) { W.topic = null; toast('已交给 AI 写，写好会出现在「审稿」'); }
+      break; }
+    case 'saveCopy': {
+      const body = {id: UI.acc}; ['position', 'tone', 'must', 'banned', 'tagMix'].forEach(k => body[k] = $('#cs-' + k).value.trim());
+      document.activeElement.blur();
+      if (await api('/api/account/copy', body)) toast('已保存，之后写的文案都按这个来');
+      break; }
+    case 'trial': { const j = await api('/api/job', {kind: 'trial', params: {account: UI.acc, item: W.trialItem}}); if (j) toast('开始试写，大约 1–2 分钟'); break; }
+    // 发布
+    case 'pickPub': UI.pubSel = id; render(); break;
+    case 'img': {
+      const L = (r.images || []).slice(), i = Number(b.dataset.i), op = b.dataset.op;
+      if (op === 'cover') L.unshift(L.splice(i, 1)[0]);
+      else if (op === 'left') [L[i - 1], L[i]] = [L[i], L[i - 1]];
+      else if (op === 'right') [L[i + 1], L[i]] = [L[i], L[i + 1]];
+      else L.splice(i, 1);
+      // 调图会让稿子回到待审（防止排期后内容变了），调完直接重新定稿
+      if (await api('/api/review', {account: UI.acc, id, action: 'images', images: L})) await api('/api/review', {account: UI.acc, id, action: 'ready'});
+      break; }
+    case 'when': UI.when = b.dataset.k; render(); break;
+    case 'approve': approveFlow(r); break;
+    case 'tryFill': {
+      toast('正在打开发布页试填，大约 1 分钟…');
+      const j = await api('/api/publish/try', {account: UI.acc, id, markAi: UI.markAi});
+      if (!j) break;
+      const plain = (j.tags || {}).plain || [];
+      openDlg(`<h2>试填好了，没有发出去</h2>${j.shot ? `<a href="${img(j.shot)}" target="_blank" rel="noopener"><img src="${img(j.shot)}" alt="发布页截图" style="width:100%;border-radius:8px;border:1px solid var(--line)"></a>` : '<p class="small muted">演示模式没有截图。</p>'}
+        ${plain.length ? `<div class="notice">这些话题平台上没有完全一样的，会按普通文字留着：${plain.map(esc).join('、')}</div>` : ''}<p class="small muted" style="margin:0">没问题的话回到这篇，点「确认排期」。</p>` + closeBtn, () => {});
+      break; }
+    case 'backToCopy': if (await api('/api/review', {account: UI.acc, id, action: 'unready'})) { UI.review = String(id); go('copy', 'review'); } break;
+    case 'package': api('/api/package', {account: UI.acc, id}).then(j => j && toast(`发布包已生成（${j.images} 张图），已在访达打开`)); break;
+    case 'unsched': dlgConfirm('取消这次排期？', '取消后稿子还在「待发布」里，可以重新排。', '取消排期', () => api('/api/unschedule', {id})); break;
+    case 'slot': dlgSlot(D.schedule.find(s => s.id === id)); break;
+    case 'wk': UI.week = Number(b.dataset.d) === 0 ? 0 : UI.week + Number(b.dataset.d); render(); break;
+    case 'login': login(id); break;
+    case 'checkLogin': { const j = await api('/api/xhs/check', {account: id || UI.acc}); if (j) toast(j.loggedIn ? '登录好了' : '还没登录上，再扫一次试试'); break; }
+    case 'renameAcc': { const v = document.querySelector(`[data-accname="${CSS.escape(id)}"]`).value.trim(); document.activeElement.blur(); if (v && await api('/api/account', {id, name: v})) toast('已改名'); break; }
+    case 'addAcc': { const v = $('#newAcc').value.trim(); if (!v) { $('#newAcc').focus(); break; } document.activeElement.blur(); const j = await api('/api/account', {name: v}); if (j) { UI.acc = String(j.account.id); save(); render(); toast('加好了，点「扫码登录」登上这个号'); } break; }
+    // 历史
+    case 'reschedule': reschedule(id); break;
+    case 'editRejected': UI.review = String(id); go('copy', 'review'); break;
+    case 'log': dlgLog(id); break;
+    case 'cancelJob': api('/api/job/cancel', {id}); break;
+  }
+});
+refresh(true);
+setInterval(() => { if (!$('#dlg').open) refresh(false); }, 4000);
+})();
+</script>
+</body>
+</html>

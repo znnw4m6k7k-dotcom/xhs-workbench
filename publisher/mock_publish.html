@@ -1,0 +1,46 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+xhs-publish-btn{display:block;width:300px;height:40px;background:#f33}
+#creator-editor-topic-container{border:1px solid #ccc}
+</style></head><body>
+<div class="upload-content">
+  <div class="creator-tab">上传视频</div><div class="creator-tab">上传图文</div>
+  <input class="upload-input" type="file" multiple>
+</div>
+<div class="img-preview-area"></div>
+<div class="d-input"><input placeholder="标题"></div>
+<div class="edit-container"><div class="ql-editor" contenteditable="true" style="min-height:80px"></div></div>
+<div id="topics"></div>
+<div class="post-time-wrapper"><div class="d-switch" aria-checked="false" style="width:30px;height:16px;background:#ddd"></div></div>
+<div class="date-picker-container"><input></div>
+<div id="decl"><span>添加内容类型声明</span></div>
+<xhs-publish-btn is-publish="true"></xhs-publish-btn>
+<script>
+window.__topics = [];
+const SUG = {'小个子穿搭': ['#小个子穿搭技巧\n1.2亿浏览', '#小个子穿搭\n5亿浏览'], '外套': ['#外套搭配', '#外套[话题]#']};
+document.querySelector('.upload-input').addEventListener('input', e => { window.__inp = (window.__inp||0)+1; });
+document.querySelector('.upload-input').onchange = e => {
+  for (const f of e.target.files) { const d = document.createElement('div'); d.className = 'pr'; document.querySelector('.img-preview-area').appendChild(d); } e.target.value = '';
+};
+const ed = document.querySelector('.ql-editor');
+ed.addEventListener('input', () => {
+  const box = document.getElementById('topics'); box.innerHTML = '';
+  const m = ed.innerText.match(/#([^\s#\[]+)$/);
+  if (!m || !SUG[m[1]]) return;
+  const c = document.createElement('div'); c.id = 'creator-editor-topic-container';
+  SUG[m[1]].forEach(t => { const it = document.createElement('div'); it.className = 'item'; it.innerText = t;
+    it.onclick = () => { const name = t.split('\n')[0].replace(/\[话题\]#?$/, '').replace(/^#/, ''); window.__topics.push(name); ed.innerText = ed.innerText.replace(/#[^\s#\[]+$/, '#' + name + '[话题]# '); box.innerHTML = ''; const r = document.createRange(); r.selectNodeContents(ed); r.collapse(false); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); };
+    c.appendChild(it); });
+  box.appendChild(c);
+});
+document.querySelector('.d-switch').onclick = e => e.target.setAttribute('aria-checked', 'true');
+document.querySelector('#decl span').onclick = () => {
+  const li = document.createElement('li'); li.innerText = '笔记含AI合成内容'; li.style.cursor = 'pointer';
+  li.onclick = () => { document.getElementById('decl').innerHTML = '<b>笔记含AI合成内容</b>'; window.__ai = true; };
+  document.body.appendChild(li);
+};
+document.querySelector('xhs-publish-btn').onclick = () => {
+  window.__published = {title: document.querySelector('.d-input input').value, body: ed.innerText, at: document.querySelector('.date-picker-container input').value};
+  localStorage.setItem('pub', JSON.stringify(window.__published));
+  if (!window.__noSuccess) location.href = 'https://creator.xiaohongshu.com/publish/success';
+};
+</script></body></html>

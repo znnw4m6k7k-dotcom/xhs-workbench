@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.DS_Store
+# 个人数据和登录资料永远不要提交
+state.json
+profiles/
+work/
+fashion.json
+backup-*/
