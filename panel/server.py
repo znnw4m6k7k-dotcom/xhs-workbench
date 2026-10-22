@@ -252,7 +252,7 @@ def read_data():
                       "checkedAt": login.get(str(a["id"]), {}).get("checkedAt"),
                       "cover": account_cover(a), "logo": account_logo(a), "persona": a.get("persona") or "",
                       "startedAt": a.get("startedAt") or 0, "rhythm": account_rhythm(a),
-                      "realFirst": bool((PERSONAS.get(a.get("persona") or "") or {}).get("realFirst"))},
+                      "realFirst": bool((PERSONAS.get(a.get("persona") or "") or {}).get("realFirst")), "cast": a.get("cast") or None},
                      **{k: a.get(k, "") for k in COPY_KEYS}) for a in st["accounts"]]
     reviews = sorted((dict(d) for d in st["drafts"]), key=lambda d: d["id"], reverse=True)
     names = {str(a["id"]): a["name"] for a in st["accounts"]}
@@ -589,7 +589,7 @@ def verify_job(job, result, before):
             raise ValueError("没有读到稿件改动，不能确认改写完成")
         update_draft(p["review"], title=d["title"], body=d["body"], tags=d["tags"], titles=d["titles"] or r.get("titles") or [],
                      comment=d["comment"] or r.get("comment", ""))
-        mutate(lambda s: s["ready"].pop(str(p["review"]), None))
+        mutate(lambda s: (s["ready"].pop(str(p["review"]), None), hold_schedule(s, p["review"], "排期后 AI 改过文案，要重新确认")))
 
 
 def run_job(job):
@@ -844,7 +844,14 @@ INFO_FIELDS = ("name", "code", "category", "colors", "sizes", "fabric", "price",
 PEAK_SLOTS = ((12, 30), (20, 0))
 # 高峰被别的号占了，就往前后挪一点（矩阵里不同号错开 30 分钟以上）
 PEAK_NEAR = {(12, 30): ((13, 10), (11, 50), (13, 50)), (20, 0): ((20, 40), (19, 20), (21, 20), (21, 50))}
-FACE_SLOTS = [("face_1", "正脸"), ("face_2", "半侧"), ("face_3", "全侧"), ("face_closeup", "特写"), ("body_1", "全身")]
+# 模特资料卡：前 4 个是必备的，出图时按素材图里人的朝向挑；半侧 / 全侧是老版本的照片位，有就一起附上
+FACE_SLOTS = [("face_1", "正脸"), ("face_left", "左侧脸"), ("face_right", "右侧脸"), ("body_1", "全身"),
+              ("face_closeup", "特写"), ("face_2", "半侧（旧）"), ("face_3", "全侧（旧）")]
+FACE_NEED = 4
+FACE_PICK = {"face_1": "脸朝正前方时用", "face_left": "脸转向画面左边时用", "face_right": "脸转向画面右边时用",
+             "body_1": "身材、腿身比、肩宽都照这张，不要拉长或改胖瘦", "face_closeup": "五官细节、痣和发际线照这张",
+             "face_2": "半侧脸（旧照片）", "face_3": "全侧脸（旧照片）"}
+MODEL_INFO = {"hair": "发色发型", "height": "身高体重", "ratio": "身材比例"}
 FACE_MODES = {
     "model": "换成我们的模特 library/models/{model}（按 SKILL.md 模式 C3「换成我们的模特」三步做：出图时换发型，衣服通过后贴真脸，再融合）",
     "ai": "出完后把脸换成一张不对应任何真人的普通面孔（按 SKILL.md 模式 C 的「换 AI 脸」做）",
@@ -932,8 +939,47 @@ def lock_jobs_for(it):
         out.append({"dir": str(d), "name": d.name,
                     "images": sorted(str(p) for p in (d / "out").glob("*") if p.suffix.lower() in IMG_EXT),
                     "rejected": len([p for p in rej.glob("*") if p.suffix.lower() in IMG_EXT]) if rej.is_dir() else 0,
-                    "report": (d / "report.md").read_text("utf-8", errors="replace")[-6000:] if (d / "report.md").is_file() else ""})
+                    "report": (d / "report.md").read_text("utf-8", errors="replace")[-6000:] if (d / "report.md").is_file() else "",
+                    "recipe": read_json_file(d / "recipe.json"), "gen": read_json_file(d / "gen.json")})
     return out
+
+
+def read_json_file(f):
+    try:
+        v = json.loads(f.read_text("utf-8")) if f.is_file() else {}
+    except (ValueError, OSError):
+        v = {}
+    return v if isinstance(v, dict) else {}
+
+
+def image_batch(path):
+    """出图成品属于哪一批：锁图 jobs/<批次>/out/ 下的图返回批次文件夹；别的（实拍图、面料近拍）返回 None。"""
+    p = Path(path).expanduser()
+    jobs = lock_root() / "jobs"
+    try:
+        rel = p.resolve().relative_to(jobs.resolve())
+    except (ValueError, OSError):
+        return None
+    return jobs / rel.parts[0] if len(rel.parts) == 3 and rel.parts[1] == "out" else None
+
+
+def check_batch_images(imgs):
+    """写文案只能用同一批里合格的图：驳回的、评 C 的不能用；两批的图不能混在一篇。实拍图不受限。"""
+    st = load_state()
+    batches = set()
+    for i, src in enumerate(imgs):
+        if src in (st.get("imgRejected") or {}):
+            raise ValueError("第 %d 张图已经驳回了，换一张" % (i + 1))
+        b = image_batch(src)
+        if not b:
+            continue
+        batches.add(b)
+        rep = b / "report.md"
+        g = image_grades(rep.read_text("utf-8", errors="replace") if rep.is_file() else "", [src])[src]["grade"]
+        if g == "C":
+            raise ValueError("第 %d 张图出图检查是 C（没通过），不能用" % (i + 1))
+    if len(batches) > 1:
+        raise ValueError("一篇只能用同一批出的图（现在混了 %d 批），实拍图可以随便加" % len(batches))
 
 
 def image_grades(report, files):
@@ -974,13 +1020,8 @@ def item_view(it, rb, st):
     for j in jobs:
         j["account"] = owner.get(j["name"], "")
     # 每个号最近一批 + 没标号的最近几批（老数据）；图片评级各批分开算
-    shown, seen = [], set()
-    for j in jobs:
-        if j["account"] and j["account"] in seen:
-            continue
-        seen.add(j["account"])
-        shown.append(j)
-    it["lockJobs"] = shown[:8]
+    # 每一批都列出来（新的在前），出好的图按批次挑；配方和生图参数跟着批次走
+    it["lockJobs"] = jobs[:20]
     imgs = jobs[0]["images"] if jobs else []
     it["grades"] = {}
     for j in it["lockJobs"]:
@@ -1014,16 +1055,71 @@ def list_models():
     out = []
     if not md.is_dir():
         return out
+    info = load_state().get("modelInfo") or {}
     for d in sorted(md.iterdir()):
-        if not d.is_dir() or d.name.startswith("示例"):
+        if not d.is_dir() or d.name.startswith("示例") or d.name.startswith("_"):
             continue
         prof = (d / "profile.md").read_text("utf-8", errors="replace") if (d / "profile.md").is_file() else ""
         hw = re.search(r"(\d{3})\s*(?:cm)?\s*[/，, ]\s*(\d{2,3})\s*(?:kg|斤)?", prof)
         faces = {k: (str(find_slot(d, k)) if find_slot(d, k) else "") for k, _ in FACE_SLOTS}
-        missing = [label for k, label in FACE_SLOTS[:4] if not faces[k]]
+        missing = [label for k, label in FACE_SLOTS[:FACE_NEED] if not faces[k]]
+        mi = info.get(d.name) or {}
         out.append({"name": d.name, "faces": faces, "missing": missing,
-                    "size": ("%s / %s" % hw.groups()) if hw else "", "hasProfile": bool(prof.strip())})
+                    "size": mi.get("height") or (("%s / %s" % hw.groups()) if hw else ""), "hasProfile": bool(prof.strip()),
+                    "info": {k: mi.get(k, "") for k in MODEL_INFO}})
     return out
+
+
+def model_card_md(name):
+    """写进出图任务单的模特资料卡：每张照片的用法、发色、身高、比例。生图 agent 按每张素材图里人的朝向挑。"""
+    m = next((x for x in list_models() if x["name"] == name), None)
+    if not m:
+        return ""
+    rows = ["- %s：library/models/%s/%s（%s）" % (label, name, Path(m["faces"][k]).name, FACE_PICK[k])
+            for k, label in FACE_SLOTS if m["faces"][k]]
+    rows += ["- %s：%s" % (MODEL_INFO[k], m["info"][k]) for k in MODEL_INFO if m["info"][k]]
+    if m["missing"]:
+        rows.append("- 缺：%s。缺的角度用最接近的那张，report.md 里写明这几张脸可能不够像" % "、".join(m["missing"]))
+    return ("## 模特资料卡（%s）\n%s\n挑法：每张先看素材图里人脸朝哪边，贴脸时附对应角度的那张（正面用正脸，转向画面左边用左侧脸，转向右边用右侧脸）；"
+            "全身比例照全身照和身高比例，不要拉腿、不要改胖瘦；发色照资料卡，不要照素材图。" % (name, "\n".join(rows)))
+
+
+def r_model(body):
+    """模特资料卡：新建、上传某个角度的照片、填发色身高比例。照片存在锁图文件夹 library/models/<名字>/ 下，
+    资料同时写进她的 profile.md，生图 agent 自己也能读到。"""
+    need(body, "action", "name")
+    name = safe_name(str(body["name"]).strip())
+    d = lock_root() / "library" / "models" / name
+    act = body["action"]
+    if act == "new":
+        if d.exists():
+            raise ValueError("已经有叫「%s」的模特了" % name)
+        d.mkdir(parents=True)
+        (d / "profile.md").write_text("# %s\n" % name, "utf-8")
+        return {"ok": True, "name": name}
+    if not d.is_dir():
+        raise ValueError("找不到这个模特")
+    if act == "photo":
+        slot = body.get("slot")
+        if slot not in dict(FACE_SLOTS):
+            raise ValueError("未知照片位置")
+        raw, ext = decode_image(body.get("data"))
+        old = find_slot(d, slot)
+        if old:
+            (d / "_removed").mkdir(exist_ok=True)
+            shutil.move(str(old), str(d / "_removed" / ("%s_%s%s" % (old.stem, uuid.uuid4().hex[:4], old.suffix))))
+        (d / (slot + ext)).write_bytes(raw)
+        return {"ok": True}
+    if act == "info":
+        vals = {k: str(body.get(k) or "").strip()[:60] for k in MODEL_INFO}
+        mutate(lambda s: s.setdefault("modelInfo", {}).__setitem__(name, vals))
+        prof = d / "profile.md"
+        text = prof.read_text("utf-8", errors="replace") if prof.is_file() else "# %s\n" % name
+        text = re.sub(r"\n?<!-- 工作台资料卡 -->.*?<!-- /工作台资料卡 -->\n?", "\n", text, flags=re.S).rstrip()
+        block = "\n".join("- %s：%s" % (MODEL_INFO[k], v) for k, v in vals.items() if v)
+        prof.write_text(text + ("\n\n<!-- 工作台资料卡 -->\n## 资料卡\n%s\n<!-- /工作台资料卡 -->\n" % block if block else "\n"), "utf-8")
+        return {"ok": True}
+    raise ValueError("未知操作")
 
 
 def list_refs():
@@ -1093,6 +1189,7 @@ def lock_job_md(it, p, job_name):
         extra = "风格：" + note + "\n\n" + extra
     if p["face"] == "model":
         extra += "\n\n## 模特\n脸和发型换成 library/models/%s（profile.md 和 face_* 照片）。衣服先按 C4 检查通过，再做贴脸和融合；脸按「检查」一节的对照表和她本人照片比。" % p["model"]
+        extra += "\n\n" + model_card_md(p["model"])
     return """# 出图任务 %s
 
 模式: 只锁产品
@@ -1122,6 +1219,8 @@ def lock_prompt(p, job_name):
                "每张把素材图当编辑底图，人、脸、动作、比例、场景和配饰都不动，只把衣服换成原图目录里的产品，附图按任务单的顺序；脸按任务单的「脸部处理」来。")
             + "每张都用 tools/crop_compare.py 把衣服关键部位放大和产品图并排检查，评 A/B/C，没过的只返工那一项，成品按表里的文件名存到 jobs/%s/out，最后运行 tools/contact_sheet.py 并写 report.md，report.md 里每张成品单独一行写「<文件名>：评级 A/B/C，一句原因」。" % job_name
             + (("风格按任务单「补充要求」里写的「%s」来。" % all_styles(load_state())[p["style"]]) if style_note(load_state(), p.get("style")) else "")
+            + ("每张成品出完，把生图用的模型名、seed（工具不给就写空字符串）、实际附上的每张参考图路径、返工次数记进 jobs/%s/gen.json，"
+               "格式 {\"<文件名>\": {\"model\": \"\", \"seed\": \"\", \"attached\": [\"...\"], \"retries\": 0}}。" % job_name)
             + "我已经在工作台点了出图，这就是确认，不用再问我。生图额度用完时停下，在 report.md 写明做到哪一张。"
             + "全部完成后，最后一行只输出：{\"ok\":true,\"images\":<out 里的张数>}")
 
@@ -1275,7 +1374,17 @@ def r_item_new(body):
     auto = not name
     if auto:
         name = "新款" + datetime.datetime.now().strftime("%m%d%H%M")
+    cast = body.get("cast") or {}
+    if not isinstance(cast, dict):
+        raise ValueError("模特设置无效")
+    picked = {}
+    for aid, c in cast.items():
+        require_account(aid)
+        if isinstance(c, dict) and c.get("face"):
+            picked[str(aid)] = clean_cast(c.get("face"), c.get("model") or "")
     it = r_item_save({"name": name, "account": body.get("account") or "", "status": "在售"})["item"]
+    if picked:
+        mutate(lambda s: [bind_cast(s, it["id"], aid, c, "建款时选的") for aid, c in picked.items()])
     if auto:
         mutate(lambda s: [x.__setitem__("autoName", True) for x in s["items"] if x["id"] == it["id"]])
     for slot, data in photos.items():
@@ -1601,7 +1710,8 @@ def api_state():
         "jobs": [{k: v for k, v in j.items() if k != "prompt"} for j in st["jobs"]][::-1],
         "settings": st["settings"], "fashion": FASHION, "copyPresets": COPY_PRESETS,
         "personas": {k: {"name": v["name"], "desc": v["desc"]} for k, v in PERSONAS.items()}, "now": now_ms(),
-        "lastPick": st.get("lastPick", {}),
+        "lastPick": st.get("lastPick", {}), "cast": st.get("cast") or {}, "castLog": (st.get("castLog") or [])[-60:],
+        "imgRejected": st.get("imgRejected") or {},
         "nextSlot": {str(a["id"]): next_slot(st, a["id"]) for a in rb["accounts"]},
         # 定稿待排的每篇：按它那一款算（同款和别的号隔开）
         "nextSlotFor": {rid: next_slot(st, d["account_id"], item=d.get("item")) for rid, d in
@@ -1679,7 +1789,10 @@ def validate_draft(r, images=True):
     if images:
         if not r.get("images"):
             raise ValueError("至少需要 1 张本机图片")
-        for src in r["images"]:
+        rejected = load_state().get("imgRejected") or {}
+        for i, src in enumerate(r["images"]):
+            if src in rejected:
+                raise ValueError("第 %d 张图已经驳回了，去掉再定稿" % (i + 1))
             image_path(src)
 
 
@@ -1745,6 +1858,81 @@ def r_prompt_preview(body):
     return {"ok": True, "prompt": write_prompt(p, st)}
 
 
+def cast_of(st, item_id, aid):
+    """这款在这个号固定用的模特和脸部处理（建款时选的，或第一次出图时定下的）；没定过返回 None。"""
+    return ((st.get("cast") or {}).get(str(item_id)) or {}).get(str(aid or ""))
+
+
+def clean_cast(face, model):
+    if face not in FACE_MODES:
+        raise ValueError("请选择脸怎么处理")
+    if face != "model":
+        return {"face": face, "model": ""}
+    if not any(x["name"] == model for x in list_models()):
+        raise ValueError("找不到这个模特")
+    return {"face": face, "model": model}
+
+
+def cast_line(c):
+    return FACE_LABEL[c["face"]] + ((" · " + c["model"]) if c.get("model") else "")
+
+
+FACE_LABEL = {"model": "换成我们的模特", "ai": "AI 脸", "hide": "不露脸", "none": "没有人的静物"}
+
+
+def bind_cast(s, item_id, aid, c, why):
+    s.setdefault("cast", {}).setdefault(str(item_id), {})[str(aid)] = dict(c, at=now_ms())
+    s.setdefault("castLog", []).append({"item": str(item_id), "account": str(aid), "at": now_ms(), "what": "绑定：" + cast_line(c), "why": why})
+    s["castLog"] = s["castLog"][-200:]
+
+
+def r_item_cast(body):
+    """这款在某个号的固定模特：绑定（还没绑过时）或解锁（要写原因，留记录）。"""
+    need(body, "item", "account", "action")
+    require_account(body["account"])
+    st = load_state()
+    it = find_item(st, body["item"])
+    if not it:
+        raise ValueError("找不到这个单品")
+    aid, cur = str(body["account"]), cast_of(st, body["item"], body["account"])
+    if body["action"] == "set":
+        if cur:
+            raise ValueError("这款在这个号已经固定了，要换先解锁")
+        c = clean_cast(body.get("face"), body.get("model") or "")
+        mutate(lambda s: bind_cast(s, it["id"], aid, c, "手动绑定"))
+        return {"ok": True, "cast": c}
+    if body["action"] == "unlock":
+        why = str(body.get("why") or "").strip()[:100]
+        if not why:
+            raise ValueError("写一句为什么要换")
+        if not cur:
+            raise ValueError("这款在这个号还没固定模特")
+
+        def f(s):
+            s["cast"][it["id"]].pop(aid, None)
+            s.setdefault("castLog", []).append({"item": it["id"], "account": aid, "at": now_ms(), "what": "解锁：" + cast_line(cur), "why": why})
+        mutate(f)
+        return {"ok": True}
+    raise ValueError("未知操作")
+
+
+def r_account_cast(body):
+    """每个号默认固定用谁：新款建款时自动带上，在建款时还能按款改。face 为空就是不设默认。"""
+    need(body, "id")
+    require_account(body["id"])
+    c = clean_cast(body.get("face"), body.get("model") or "") if body.get("face") else None
+
+    def f(s):
+        for a in s["accounts"]:
+            if str(a["id"]) == str(body["id"]):
+                if c:
+                    a["cast"] = c
+                else:
+                    a.pop("cast", None)
+    mutate(f)
+    return {"ok": True}
+
+
 def r_lock_job(kind, p):
     need(p, "item")
     st = load_state()
@@ -1767,10 +1955,16 @@ def r_lock_job(kind, p):
     else:
         if not it.get("specOk"):
             raise ValueError("档案还没核对，先在第 1 步核对检查要点并确认")
-        if p.get("face") not in FACE_MODES:
-            raise ValueError("请选择脸怎么处理")
         if p.get("account"):
             require_account(p["account"])
+        bound = cast_of(st, it["id"], p.get("account"))
+        if bound:
+            # 建款时（或第一次出图时）定下的模特和脸部处理，每次出图都用它，不能临时换
+            if p.get("face") not in (None, "", bound["face"]) or (bound["face"] == "model" and p.get("model") not in (None, "", bound["model"])):
+                raise ValueError("「%s」在这个号固定用「%s」，不能临时换；真要换，先在出图页点「解锁」并写原因" % (it["name"], cast_line(bound)))
+            p["face"], p["model"] = bound["face"], bound["model"]
+        if p.get("face") not in FACE_MODES:
+            raise ValueError("请选择脸怎么处理")
         if p["face"] == "model":
             m = next((x for x in list_models() if x["name"] == p.get("model")), None)
             if not m:
@@ -1795,6 +1989,16 @@ def r_lock_job(kind, p):
         (jd / "out").mkdir(parents=True)
         (jd / "rejected").mkdir()
         (jd / "job.md").write_text(lock_job_md(it, p, name), "utf-8")
+        tag_ = "模特" if p["face"] == "model" else "产品"
+        model = next((x for x in list_models() if x["name"] == p.get("model")), None) if p["face"] == "model" else None
+        # 这批图的配方：出了问题能查，效果好的能照着再出一组
+        (jd / "recipe.json").write_text(json.dumps({
+            "job": name, "item": it["id"], "account": str(p.get("account") or ""), "style": p["style"], "face": p["face"],
+            "model": p.get("model") or "", "modelPhotos": [v for v in (model or {}).get("faces", {}).values() if v],
+            "product": [str(f) for f in (find_slot(item_dir(it), k) for k in ("front", "detail_2", "detail_1", "back")) if f],
+            "refs": refs, "note": str(p.get("note") or "")[:300], "createdAt": now_ms(),
+            "rows": [{"out": "%s_%s_%02d_%s.png" % (safe_name(it["lockName"]), tag_, i + 1, safe_name(Path(r).stem)), "ref": r} for i, r in enumerate(refs)],
+        }, ensure_ascii=False, indent=1), "utf-8")
         auto = p.get("autoWrite") if isinstance(p.get("autoWrite"), dict) else None
         if auto:
             require_account(auto.get("account"))
@@ -1811,6 +2015,8 @@ def r_lock_job(kind, p):
             if acc:
                 lp.setdefault("byAcc", {})[str(acc)] = {"style": p["style"], "face": p["face"], "model": p.get("model") or "", "refs": refs}
                 s.setdefault("jobAcc", {})[name] = str(acc)   # 这批图是给哪个号出的
+                if not cast_of(s, it["id"], acc):
+                    bind_cast(s, it["id"], acc, {"face": p["face"], "model": p.get("model") or ""}, "第一次出图时定下")
         mutate(remember)
         job = {"id": uuid.uuid4().hex[:10], "kind": "lock", "cwd": str(lock_root()),
                "params": {"item": it["id"], "account": str(p.get("account") or (auto or {}).get("account") or ""), "face": p["face"], "model": p.get("model") or "", "refs": refs, "jobDir": str(jd), "autoWrite": auto, "style": p["style"]},
@@ -1838,7 +2044,8 @@ def r_lock_multi(p):
             skipped.append({"account": aid, "why": "这个号还没选过参考图，先切到这个号出一次"})
             continue
         try:
-            job = r_lock_job("lock", {"item": p["item"], "account": aid, "face": pk.get("face"), "model": pk.get("model") or "",
+            bound = cast_of(st, p["item"], aid) or {}
+            job = r_lock_job("lock", {"item": p["item"], "account": aid, "face": bound.get("face") or pk.get("face"), "model": bound.get("model") or pk.get("model") or "",
                                       "refs": refs, "style": pk.get("style"), "note": str(p.get("note") or "")[:300],
                                       "autoWrite": {"account": aid, "count": 1} if p.get("autoWrite", True) else None})["job"]
             queued.append({"account": aid, "job": job["id"], "estimateMin": job.get("estimateMin", 0)})
@@ -1858,6 +2065,7 @@ def r_write_from_images(p):
         raise ValueError("至少选 1 张图")
     for src in imgs:
         image_path(src)
+    check_batch_images(imgs)
     p["count"] = 2 if str(p.get("count")) == "2" else 1
     if p["count"] == 2 and len(imgs) < 4:
         raise ValueError("拆成 2 篇至少要 4 张图")
@@ -1893,6 +2101,56 @@ def r_job_cancel(body):
     return {"ok": True}
 
 
+def hold_schedule(s, rid, why):
+    """稿子在排期后改过（文案、图、图被驳回）：排期先停住，标「待重新确认」，确认后可以回到原时间。"""
+    for e in s["schedule"]:
+        if str(e["review"]) == str(rid) and e["status"] == "pending":
+            e.update(status="hold", error=why, heldAt=now_ms())
+
+
+def cancel_schedule(s, rid, why):
+    for e in s["schedule"]:
+        if str(e["review"]) == str(rid) and e["status"] in ("pending", "hold"):
+            e.update(status="cancelled", error=why)
+
+
+def r_image(body):
+    """出好的图单张驳回 / 恢复。驳回的图挪进这一批的 rejected/，写文案选不到；已经用了这张图的稿退回待审，排期停住。"""
+    need(body, "action", "path")
+    path = str(body["path"])
+    st = load_state()
+    if body["action"] == "reject":
+        b = image_batch(path)
+        if not b or not Path(path).is_file():
+            raise ValueError("只能驳回出图成品")
+        why = str(body.get("why") or "").strip()[:100] or "人工驳回"
+        dst = b / "rejected" / Path(path).name
+        if dst.exists():
+            dst = dst.with_name("%s_%s%s" % (dst.stem, uuid.uuid4().hex[:4], dst.suffix))
+        dst.parent.mkdir(exist_ok=True)
+        shutil.move(path, str(dst))
+        hit = [str(d["id"]) for d in st["drafts"] if path in (d.get("images") or []) and d["status"] != "已发布"]
+
+        def f(s):
+            s.setdefault("imgRejected", {})[path] = {"to": str(dst), "at": now_ms(), "why": why}
+            for rid in hit:
+                s["ready"].pop(rid, None)
+                hold_schedule(s, rid, "用到的图被驳回了，换掉图再确认")
+        mutate(f)
+        return {"ok": True, "drafts": hit}
+    if body["action"] == "restore":
+        rec = (st.get("imgRejected") or {}).get(path)
+        if not rec:
+            raise ValueError("这张图没有被驳回过")
+        if Path(path).exists():
+            raise ValueError("原位置已经有同名的图了")
+        if Path(rec["to"]).is_file():
+            shutil.move(rec["to"], path)
+        mutate(lambda s: s["imgRejected"].pop(path, None))
+        return {"ok": True}
+    raise ValueError("未知操作")
+
+
 def r_review(body):
     need(body, "account", "id", "action")
     aid, rid, act = str(body["account"]), str(body["id"]), body["action"]
@@ -1917,17 +2175,21 @@ def r_review(body):
         candidate["tags"] = split_tags(candidate["tags"])[:10]
         validate_draft(candidate, images=False)
         update_draft(rid, title=candidate["title"].strip(), body=candidate["body"], tags=candidate["tags"], comment=candidate["comment"], status="未审核" if r["status"] == "驳回" else r["status"])
-        mutate(lambda s: s["ready"].pop(rid, None))
+        changed = draft_fingerprint(review_by_id(rid)) != draft_fingerprint(r)
+        mutate(lambda s: (s["ready"].pop(rid, None), changed and hold_schedule(s, rid, "排期后文案改过，要重新确认")))
     elif act == "images":
         # 换封面、调顺序、去掉不要的图：只能用这篇原有的图
         imgs = body.get("images")
         if not isinstance(imgs, list) or not imgs or len(set(imgs)) != len(imgs) or any(x not in r["images"] for x in imgs):
             raise ValueError("图片只能从这篇原有的图里选，至少留 1 张")
+        rejected = load_state().get("imgRejected") or {}
+        if any(x in rejected for x in imgs):
+            raise ValueError("驳回的图不能再用")
         update_draft(rid, images=imgs)
-        mutate(lambda s: s["ready"].pop(rid, None))
+        mutate(lambda s: (s["ready"].pop(rid, None), imgs != r["images"] and hold_schedule(s, rid, "排期后图改过，要重新确认")))
     elif act == "reject":
         update_draft(rid, status="驳回")
-        mutate(lambda s: s["ready"].pop(rid, None))
+        mutate(lambda s: (s["ready"].pop(rid, None), cancel_schedule(s, rid, "稿子被驳回，排期已自动取消")))
     elif act == "delete":
         if any(str(e["review"]) == rid and e["status"] in ("pending", "running") for e in load_state()["schedule"]):
             raise ValueError("这篇已排期，先取消排期再删")
@@ -2006,7 +2268,12 @@ def _r_publish(body):
              "markAi": bool(load_state()["settings"].get("mark_ai", True) if mark_ai is None else mark_ai),
              "status": "pending", "createdAt": now_ms(), "fingerprint": draft_fingerprint(r)}
     # 不交给小红书平台定时：立即发的现在开浏览器，排了时间的由 scheduler 到点开浏览器发
-    mutate(lambda s: s["schedule"].append(entry))
+    def add(s):
+        for e in s["schedule"]:
+            if str(e["review"]) == str(entry["review"]) and e["status"] == "hold":
+                e.update(status="cancelled", rescheduled=entry["id"], error="改过后重新确认，排到了 %s" % fmt_ms(entry["at"]))
+        s["schedule"].append(entry)
+    mutate(add)
     if not at:
         threading.Thread(target=publish_one, args=(entry,), daemon=True).start()
     else:
@@ -2244,7 +2511,7 @@ def r_unschedule(body):
     need(body, "id")
     with LOCK:
         entry = next((e for e in load_state()["schedule"] if e["id"] == body["id"]), None)
-        if not entry or entry["status"] != "pending":
+        if not entry or entry["status"] not in ("pending", "hold"):
             raise ValueError("只能取消待发排期")
         set_entry(body["id"], status="cancelled")
     return {"ok": True}
@@ -2348,7 +2615,7 @@ ROUTES = {
     "/api/reschedule": r_reschedule, "/api/account/copy": r_account_copy, "/api/topic": r_topic,
     "/api/prompt/preview": r_prompt_preview, "/api/ref/style": r_ref_style, "/api/ref/delete": r_ref_delete,
     "/api/style/group": r_style_group, "/api/item/real": r_item_real, "/api/account/cover": r_account_cover,
-    "/api/account/persona": r_account_persona, "/api/lock/multi": r_lock_multi,
+    "/api/account/persona": r_account_persona, "/api/account/cast": r_account_cast, "/api/item/cast": r_item_cast, "/api/model": r_model, "/api/image": r_image, "/api/lock/multi": r_lock_multi,
 }
 
 

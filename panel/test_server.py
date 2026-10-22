@@ -323,7 +323,7 @@ class PanelTests(unittest.TestCase):
         v = next(x for x in self.m.api_state()["items"] if x["id"] == it["id"])
         self.assertTrue(v["photos"]["front"].endswith("front.png"))
         self.assertEqual(v["stage"], "待写档案")
-        self.assertEqual(self.m.api_state()["lock"]["models"][0]["missing"], ["全侧"])
+        self.assertEqual(self.m.api_state()["lock"]["models"][0]["missing"], ["左侧脸", "右侧脸", "全身"])
         with self.assertRaises(ValueError):
             self.m.r_item_photo({"id": it["id"], "slot": "hack", "data": "x,y"})
 
@@ -838,6 +838,166 @@ class PanelTests(unittest.TestCase):
         self.run_one(job)
         v = next(x for x in self.m.api_state()["items"] if x["id"] == it["id"])
         self.assertEqual(v["lockJobs"][0]["account"], "2")
+
+    # ---------------------------------------------------------------- 第一批：模特绑定、资料卡、配方、批次、排期跟审核
+    def shoot_ready(self):
+        root, it = self.lock_setup()
+        self.run_one(self.m.r_job({"kind": "spec", "params": {"item": it["id"]}})["job"])
+        self.m.r_item_checks({"id": it["id"], "confirmed": True})
+        return root, it
+
+    def test_90_cast_fixed_per_item_and_account(self):
+        root, it = self.shoot_ready()
+        refs = self.m.list_refs()
+        self.m.r_account({"name": "the rumah daily"})
+        # 第一次出图就定下来，之后换不了
+        job = self.m.r_job({"kind": "lock", "params": {"item": it["id"], "account": "1", "face": "model", "model": "小禾", "refs": refs}})["job"]
+        c = self.m.cast_of(self.m.load_state(), it["id"], "1")
+        self.assertEqual((c["face"], c["model"]), ("model", "小禾"))
+        self.run_one(job)
+        with self.assertRaises(ValueError) as e:
+            self.m.r_job({"kind": "lock", "params": {"item": it["id"], "account": "1", "face": "ai", "refs": refs}})
+        self.assertIn("解锁", str(e.exception))
+        # 没传脸部处理也自动带上
+        j2 = self.m.r_job({"kind": "lock", "params": {"item": it["id"], "account": "1", "refs": refs[:1]}})["job"]
+        self.assertEqual((j2["params"]["face"], j2["params"]["model"]), ("model", "小禾"))
+        self.m.r_job_cancel({"id": j2["id"]})
+        # 另一个号可以用别的
+        self.m.r_job({"kind": "lock", "params": {"item": it["id"], "account": "2", "face": "hide", "refs": refs}})
+        self.assertEqual(self.m.cast_of(self.m.load_state(), it["id"], "2")["face"], "hide")
+        # 解锁要写原因，留记录
+        with self.assertRaises(ValueError):
+            self.m.r_item_cast({"item": it["id"], "account": "1", "action": "unlock"})
+        self.m.r_item_cast({"item": it["id"], "account": "1", "action": "unlock", "why": "小禾不合作了"})
+        self.assertIsNone(self.m.cast_of(self.m.load_state(), it["id"], "1"))
+        log = self.m.load_state()["castLog"]
+        self.assertEqual(log[-1]["why"], "小禾不合作了")
+        self.assertTrue(log[-1]["what"].startswith("解锁"))
+
+    def test_91_cast_chosen_at_new_item_and_account_default(self):
+        root, _ = self.lock_setup()
+        self.m.r_account_cast({"id": "1", "face": "model", "model": "小禾"})
+        self.assertEqual(self.m.api_state()["accounts"][0]["cast"], {"face": "model", "model": "小禾"})
+        with self.assertRaises(ValueError):
+            self.m.r_account_cast({"id": "1", "face": "model", "model": "没有这人"})
+        res = self.m.r_item_new({"photos": {"front": self.b64(self.image.read_bytes() * 3)}, "cast": {"1": {"face": "model", "model": "小禾"}}})
+        c = self.m.cast_of(self.m.load_state(), res["item"]["id"], "1")
+        self.assertEqual((c["face"], c["model"]), ("model", "小禾"))
+        self.assertEqual(self.m.load_state()["castLog"][-1]["why"], "建款时选的")
+
+    def test_92_model_card_upload_and_job_md(self):
+        root, it = self.shoot_ready()
+        self.m.r_model({"action": "new", "name": "阿雅"})
+        with self.assertRaises(ValueError):
+            self.m.r_model({"action": "new", "name": "阿雅"})
+        for slot in ("face_1", "face_left", "face_right", "body_1"):
+            self.m.r_model({"action": "photo", "name": "阿雅", "slot": slot, "data": self.b64()})
+        self.m.r_model({"action": "photo", "name": "阿雅", "slot": "face_1", "data": self.b64()})   # 换一张，旧的挪走
+        self.m.r_model({"action": "info", "name": "阿雅", "hair": "黑色齐肩短发", "height": "165cm 50kg", "ratio": "腿长，肩窄"})
+        m = next(x for x in self.m.list_models() if x["name"] == "阿雅")
+        self.assertEqual(m["missing"], [])
+        self.assertEqual(m["info"]["hair"], "黑色齐肩短发")
+        prof = (root / "library/models/阿雅/profile.md").read_text()
+        self.assertIn("黑色齐肩短发", prof)
+        self.m.r_model({"action": "info", "name": "阿雅", "hair": "棕色长卷发", "height": "", "ratio": ""})
+        prof = (root / "library/models/阿雅/profile.md").read_text()
+        self.assertNotIn("黑色齐肩短发", prof)
+        self.assertEqual(prof.count("工作台资料卡 -->"), 2)
+        job = self.m.r_job({"kind": "lock", "params": {"item": it["id"], "account": "1", "face": "model", "model": "阿雅", "refs": self.m.list_refs()}})["job"]
+        md = (Path(job["params"]["jobDir"]) / "job.md").read_text()
+        self.assertIn("模特资料卡（阿雅）", md)
+        self.assertIn("左侧脸：library/models/阿雅/face_left.png", md)
+        self.assertIn("棕色长卷发", md)
+        self.assertIn("gen.json", job["prompt"])
+
+    def test_93_recipe_recorded_per_batch(self):
+        root, it = self.shoot_ready()
+        refs = self.m.list_refs()
+        job = self.m.r_job({"kind": "lock", "params": {"item": it["id"], "account": "1", "face": "ai", "refs": refs, "note": "扣子全扣上"}})["job"]
+        self.run_one(job)
+        jd = Path(job["params"]["jobDir"])
+        (jd / "gen.json").write_text(json.dumps({"演示_01.png": {"model": "gpt-image", "seed": "", "attached": refs[:1], "retries": 1}}), "utf-8")
+        v = next(x for x in self.m.api_state()["items"] if x["id"] == it["id"])
+        b = v["lockJobs"][0]
+        self.assertEqual(b["recipe"]["refs"], refs)
+        self.assertEqual(b["recipe"]["face"], "ai")
+        self.assertEqual(b["recipe"]["note"], "扣子全扣上")
+        self.assertTrue(b["recipe"]["product"][0].endswith("front.png"))
+        self.assertEqual(len(b["recipe"]["rows"]), 2)
+        self.assertEqual(b["gen"]["演示_01.png"]["model"], "gpt-image")
+
+    def test_94_batch_only_and_rejected_images_isolated(self):
+        root, it = self.shoot_ready()
+        refs = self.m.list_refs()
+        j1 = self.m.r_job({"kind": "lock", "params": {"item": it["id"], "account": "1", "face": "ai", "refs": refs}})["job"]
+        self.run_one(j1)
+        a1 = sorted(str(p) for p in (Path(j1["params"]["jobDir"]) / "out").glob("*"))
+        j2 = self.m.r_job({"kind": "lock", "params": {"item": it["id"], "account": "1", "refs": refs[:1]}})["job"]
+        self.run_one(j2)
+        a2 = sorted(str(p) for p in (Path(j2["params"]["jobDir"]) / "out").glob("*"))
+        with self.assertRaises(ValueError) as e:
+            self.m.r_job({"kind": "write", "params": {"account": "1", "item": it["id"], "images": a1[:1] + a2}})
+        self.assertIn("同一批", str(e.exception))
+        # 评 C 的不能用
+        (Path(j1["params"]["jobDir"]) / "report.md").write_text("演示_01.png：评级 A，好\n演示_02.png：评级 C，领子不对", "utf-8")
+        with self.assertRaises(ValueError):
+            self.m.r_job({"kind": "write", "params": {"account": "1", "item": it["id"], "images": a1}})
+        # 稿子用了一张图，排期后这张图被驳回：稿退回待审，排期停住，发不出去
+        rid = self.m.add_drafts("1", it["id"], [{"title": "灰色外套", "body": "演示正文", "tags": ["演示"], "images": a1[:1]}], "test")[0]
+        self.ready(rid)
+        self.login()
+        q = self.m.r_publish_preview({"account": "1", "id": rid})["quote"]
+        e1 = self.m.r_publish({"account": "1", "id": rid, "quote": q, "at": self.m.now_ms() + 7200000})["entry"]
+        res = self.m.r_image({"action": "reject", "path": a1[0], "why": "手指多了一根"})
+        self.assertEqual(res["drafts"], [str(rid)])
+        self.assertFalse(Path(a1[0]).exists())
+        self.assertEqual(self.entry(e1["id"])["status"], "hold")
+        self.assertNotIn(str(rid), self.m.load_state()["ready"])
+        with self.assertRaises(ValueError):
+            self.m.r_review({"account": "1", "id": rid, "action": "ready"})
+        v = next(x for x in self.m.api_state()["items"] if x["id"] == it["id"])
+        self.assertNotIn(a1[0], sum((b["images"] for b in v["lockJobs"]), []))
+        with self.assertRaises(ValueError):
+            self.m.r_job({"kind": "write", "params": {"account": "1", "item": it["id"], "images": a1[:1]}})
+        self.m.r_image({"action": "restore", "path": a1[0]})
+        self.assertTrue(Path(a1[0]).exists())
+        with self.assertRaises(ValueError):
+            self.m.r_image({"action": "reject", "path": str(self.image)})
+
+    def test_95_schedule_follows_review(self):
+        e = self.schedule()
+        # 改文案 → 排期停住，标待重新确认
+        self.m.r_review({"account": "1", "id": self.rid, "action": "save", "body": "改过的演示正文，用来验证排期暂停。"})
+        self.assertEqual(self.entry(e["id"])["status"], "hold")
+        self.assertNotIn(e["id"], [x["id"] for x in self.m.load_state()["schedule"] if x["status"] == "pending"])
+        # 重新确认后原来那条换成新的
+        q = self.quote()
+        e2 = self.m.r_publish({"account": "1", "id": self.rid, "quote": q, "at": e["at"]})["entry"]
+        self.assertEqual(self.entry(e["id"])["status"], "cancelled")
+        self.assertEqual(self.entry(e["id"])["rescheduled"], e2["id"])
+        # 只保存不改内容不动排期
+        self.m.r_review({"account": "1", "id": self.rid, "action": "save"})
+        self.assertEqual(self.entry(e2["id"])["status"], "pending")
+        # 换图 → 停住
+        self.m.r_review({"account": "1", "id": self.rid, "action": "images", "images": [str(self.image2), str(self.image)]})
+        self.assertEqual(self.entry(e2["id"])["status"], "hold")
+        # 驳回 → 直接取消（停住的也取消）
+        self.m.r_review({"account": "1", "id": self.rid, "action": "reject"})
+        self.assertEqual(self.entry(e2["id"])["status"], "cancelled")
+        self.assertIn("驳回", self.entry(e2["id"])["error"])
+
+    def test_96_reject_cancels_pending_schedule(self):
+        e = self.schedule()
+        self.m.r_review({"account": "1", "id": self.rid, "action": "reject"})
+        self.assertEqual(self.entry(e["id"])["status"], "cancelled")
+
+    def test_97_rewrite_holds_schedule(self):
+        e = self.schedule()
+        job = self.m.r_review({"account": "1", "id": self.rid, "action": "rewrite", "note": "开头改成提问"})["job"]
+        self.finish(job)
+        self.assertEqual(self.entry(e["id"])["status"], "hold")
+        self.m.r_unschedule({"id": e["id"]})
+        self.assertEqual(self.entry(e["id"])["status"], "cancelled")
 
 
 if __name__ == "__main__":

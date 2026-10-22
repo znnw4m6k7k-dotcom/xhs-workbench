@@ -174,6 +174,16 @@ input[type=checkbox],input[type=radio]{accent-color:var(--accent)}
 .faces img,.faces .ph{width:34px;height:34px;border-radius:50%;object-fit:cover;font-size:10px}
 .faces .ph.miss{border:1px dashed var(--bad);color:var(--bad);background:transparent}
 .refs{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:10px}
+.refwrap{display:flex;flex-direction:column;gap:2px;min-width:0}
+.tileops{display:flex;gap:10px;padding:0 2px;font-size:12px}.tileops button{font-size:12px}
+.ref[disabled]{opacity:.45;cursor:not-allowed}
+.lockcard{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:12px 14px;border:1px solid var(--line);border-radius:var(--r);background:var(--soft2)}
+.mslots{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.mslot{padding:0;border:1px dashed var(--line);border-radius:8px;aspect-ratio:3/4;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;overflow:hidden;position:relative;font-size:11px;color:var(--muted);white-space:normal;background:var(--soft2)}
+.mslot img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.mslot span{position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.45);color:#fff;font-size:10.5px;padding:2px 0;text-align:center}
+.mslot.miss{border-color:var(--bad)}
+table.kv{border-collapse:collapse;width:100%;font-size:13px}table.kv td{padding:5px 8px;border-bottom:1px solid var(--line);vertical-align:top}table.kv td:first-child{color:var(--muted);white-space:nowrap;width:96px}
 .ref{padding:0;border:0;border-radius:var(--r);background:none;position:relative;display:flex;flex-direction:column;gap:4px;white-space:normal;min-width:0;text-align:left}
 .ref:hover{background:none}
 .ref .th{outline:1px solid var(--line);outline-offset:-1px;transition:outline-color .15s}
@@ -228,7 +238,7 @@ input[type=checkbox],input[type=radio]{accent-color:var(--accent)}
 .day.today h3,.day.today h3 b{color:var(--accent)}
 .cal{display:block;width:100%;text-align:left;white-space:normal;padding:6px 8px;font-size:12.5px;background:var(--warn-soft);border:0;border-left:3px solid var(--warn);border-radius:6px}
 .cal .t{font-family:var(--mono);font-size:11.5px;color:var(--muted);display:block}
-.cal.done{background:var(--good-soft);border-left-color:var(--good)}.cal.failed,.cal.missed{background:var(--bad-soft);border-left-color:var(--bad)}.cal.running{background:var(--info-soft);border-left-color:var(--info)}
+.cal.hold{background:var(--soft);border-left-color:var(--muted)}.cal.done{background:var(--good-soft);border-left-color:var(--good)}.cal.failed,.cal.missed{background:var(--bad-soft);border-left-color:var(--bad)}.cal.running{background:var(--info-soft);border-left-color:var(--info)}
 .list{display:flex;flex-direction:column}
 .item{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;justify-content:space-between;padding:14px 0;border-top:1px solid var(--line)}
 .item:first-child{border-top:0}
@@ -327,6 +337,7 @@ details summary{cursor:pointer}
 <input type="file" id="photoFile" accept="image/*" hidden>
 <input type="file" id="refFile" accept="image/*" multiple hidden>
 <input type="file" id="realFile" accept="image/*" multiple hidden>
+<input type="file" id="modelFile" accept="image/*" hidden>
 <input type="file" id="logoFile" accept="image/png,image/*" hidden>
 
 <script>
@@ -409,8 +420,12 @@ const unusedTopics = () => myTopics().filter(t => t.status === 'unused');
 const refStyle = r => D.lock.refStyles[r] || 'other';
 // 这款能配文案的图：AI 出的 + 自己拍的实拍图 + 面料近拍
 const isReal = (it, p) => (it.realPhotos || []).includes(p) || p === it.photos.detail_1;
-const imgPool = it => lastImages(it).concat(it.realPhotos || [], it.photos.detail_1 ? [it.photos.detail_1] : []);
-const defaultImgs = it => lastImages(it).filter(p => ((it.grades || {})[p] || {}).grade !== 'C').concat(it.realPhotos || []);
+// 写文案只能用同一批出的图（实拍图随便加）；评 C 的、驳回的选不了
+const imgPool = it => batchImages(it).concat(it.realPhotos || [], it.photos.detail_1 ? [it.photos.detail_1] : []);
+const defaultImgs = it => batchImages(it).filter(p => !isBad(it, p)).concat(it.realPhotos || []);
+const isBad = (it, p) => ((it.grades || {})[p] || {}).grade === 'C' || !!(D.imgRejected || {})[p];
+const castOf = (itemId, aid = UI.acc) => ((D.cast || {})[itemId] || {})[String(aid)] || null;
+const castText = c => c && c.face ? (FACE_NAME[c.face] || '') + (c.face === 'model' && c.model ? ' · ' + c.model : '') : '';
 const allReal = imgs => imgs.length && imgs.every(p => D.items.some(i => i.photos && isReal(i, p)));
 function upcomingNodes() {
   const now = new Date(); now.setHours(0, 0, 0, 0);
@@ -426,6 +441,24 @@ const weekStart = off => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDa
 // 一款多号：每批图记着是给哪个号出的，只看这个号的（老数据没标号的大家都能用）
 const myJobs = it => (it.lockJobs || []).filter(j => !j.account || String(j.account) === String(UI.acc));
 const lastImages = it => (myJobs(it).find(j => j.images.length) || {images: []}).images;
+const batches = it => myJobs(it).filter(j => j.images.length);
+const batchOf = it => { const bs = batches(it); return bs.find(j => j.name === (UI.batch || {})[it.id]) || bs[0]; };
+const batchImages = it => (batchOf(it) || {images: []}).images;
+function batchLabel(j, i) {
+  const r = j.recipe || {}, t = r.createdAt || 0;
+  return `第 ${i} 批 · ${t ? fmtDT(t) + ' · ' : ''}${[D.styles[r.style], castText(r)].filter(Boolean).map(esc).join(' · ') || esc(j.name)} · ${j.images.length} 张`;
+}
+function batchSel(it) {
+  const bs = batches(it), cur = batchOf(it);
+  if (bs.length < 2) return '';
+  return `<label class="row small" style="flex-wrap:nowrap;gap:8px"><span class="muted" style="white-space:nowrap">用哪一批</span><select id="batchSel" data-id="${esc(it.id)}" style="width:auto">${bs.map((j, i) => `<option value="${esc(j.name)}" ${j === cur ? 'selected' : ''}>${batchLabel(j, bs.length - i)}</option>`).join('')}</select></label>`;
+}
+function imgTile(it, p, sel, withOps) {
+  const k = sel.indexOf(p), gr = (it.grades || {})[p], bad = isBad(it, p);
+  const tile = `<button type="button" class="ref" data-do="pickImg" data-p="${esc(p)}" aria-pressed="${k >= 0}" ${bad ? 'disabled title="出图检查没通过，不能用"' : ''}><img class="th" src="${img(p)}" alt="">${k >= 0 ? `<span class="n">${k === 0 ? '封面' : k + 1}</span>` : ''}<span class="g">${gradePill(gr) || (isReal(it, p) ? '<span class="pill">实拍</span>' : '')}</span><span class="l">${esc(gr && gr.note ? gr.note : base(p))}</span></button>`;
+  if (!withOps || isReal(it, p)) return tile;
+  return `<div class="refwrap">${tile}<div class="tileops"><button type="button" class="link" data-do="imgInfo" data-id="${esc(it.id)}" data-p="${esc(p)}">参数</button><button type="button" class="link" style="color:var(--bad)" data-do="imgReject" data-id="${esc(it.id)}" data-p="${esc(p)}">驳回</button></div></div>`;
+}
 const busyHint = text => `<div class="hint"><span class="dot" style="display:inline-block"></span> ${text}</div>`;
 
 // ---------- 结构：四大块，每块一排子页；每页页头一句话告诉人这一页干什么
@@ -433,7 +466,7 @@ const DESC = {
   'img.info': '拍好的衣服照片放进来，AI 读吊牌写档案；你补上材质手感和痛点，再核对检查要点。',
   'img.shoot': '选风格和参考图，锁住衣服细节出图。每个号记得自己上次的拍法，换号自动换。每张出完 AI 会放大检查，不合格自动重做。',
   'img.result': '挑能用的图（AI 图和实拍图可以混着用），第 1 张是封面，然后交给 AI 写文案。',
-  'img.lib': '模特照片和想模仿的参考图。参考图按风格分组，可以自己加组；出图时选了风格就自动带上。',
+  'img.lib': '模特资料卡、每个号固定用谁，和想模仿的参考图。参考图按风格分组，可以自己加组；出图时选了风格就自动带上。',
   'copy.topic': '每个号一个选题库。看场景 × 身材哪里还空着，挑一条去写。',
   'copy.review': '挑标题、改字。没问题就定稿，交给「发布」。',
   'copy.write': '从「选题库」点「写这条」或从「出好的图」点「写文案」进来。写好进「审稿」，不会自动发。',
@@ -586,16 +619,34 @@ function shootPage(it) {
       <div class="row"><button type="button" class="ghost" data-do="log" data-id="${esc(job.id)}">看过程</button><button type="button" class="ghost danger" data-do="cancelJob" data-id="${esc(job.id)}">停止</button></div>`;
   }
   const models = D.lock.models, refs = D.lock.refs;
-  if (PICK.init !== it.id) { PICK.init = it.id; initPick(it); }
+  if (PICK.init !== it.id) { PICK.init = it.id; PICK.note = ''; PICK.reuse = ''; initPick(it); }
   if (!PICK.model && models.length) PICK.model = (models.find(m => !m.missing.length) || models[0]).name;
+  // 这款在这个号固定了模特和脸部处理：每次都用它，界面上不给改
+  const bound = castOf(it.id);
+  if (bound) { PICK.face = bound.face; if (bound.model) PICK.model = bound.model; }
   PICK.refs = PICK.refs.filter(r => refs.includes(r));
   const shown = PICK.style === 'own' ? refs : refs.filter(r => refStyle(r) === PICK.style);
   const est = (D.lock.minPerImage[PICK.face] || 5) * PICK.refs.length;
   const styleName = (styleOpts().find(s => s[0] === PICK.style) || [])[1];
   return `${last && last.images.length ? `<div class="hint">上次出了 ${last.images.length} 张${last.rejected ? `，${last.rejected} 张没通过` : ''}。<button type="button" class="link" data-do="goSub" data-tab="img" data-sub="result">去看出好的图</button></div>` : ''}
-    ${PICK.fromAcc ? `<div class="hint good">按「${esc((acc() || {}).name || '')}」上次的拍法带好了：${esc(styleName || '')} · ${FACE_NAME[PICK.face] || ''}${PICK.face === 'model' && PICK.model ? ' ' + esc(PICK.model) : ''} · ${PICK.refs.length} 张参考图。要换就点下面。</div>` : ''}
+    ${PICK.reuse ? `<div class="hint good">照「${esc(PICK.reuse)}」的配方带好了：风格、参考图和补充要求都一样。${bound ? '模特按这款固定的来。' : ''}生图没有固定 seed，出来会很像，但不会一模一样。</div>` : ''}
+    ${PICK.fromAcc && !PICK.reuse ? `<div class="hint good">按「${esc((acc() || {}).name || '')}」上次的拍法带好了：${esc(styleName || '')} · ${FACE_NAME[PICK.face] || ''}${PICK.face === 'model' && PICK.model ? ' ' + esc(PICK.model) : ''} · ${PICK.refs.length} 张参考图。要换就点下面。</div>` : ''}
     <div class="sec"><div class="h"><h3>拍什么风格</h3><span class="small muted">选了就自动带上图库里这一组参考图</span></div>
       <div class="stylepick">${styleOpts().map(([k, n, tip]) => `<button type="button" data-do="style" data-k="${esc(k)}" aria-pressed="${PICK.style === k}"><b>${esc(n)}</b><span class="small muted">${esc(tip)}</span></button>`).join('')}</div></div>
+    ${bound ? lockCard(it, bound) : facePick(models)}
+    <div class="sec"><div class="h"><h3>照哪些图拍</h3><span class="small muted">每选一张出一张；${PICK.style === 'own' ? '' : `已带上「${styleName}」这组，`}建议 4–6 张</span></div>
+      ${shown.length ? `<div class="refs">${shown.map(r => { const n = PICK.refs.indexOf(r); return `<button type="button" class="ref" data-do="pickRef" data-ref="${esc(r)}" aria-pressed="${n >= 0}"><img class="th" src="${img(r)}" alt="">${n >= 0 ? `<span class="n">${n + 1}</span>` : ''}<span class="l">${esc(stem(r))}</span></button>`; }).join('')}</div>`
+        : `<div class="hint warn">${PICK.style === 'own' ? '参考图库是空的' : `「${styleName}」这组还没有参考图`}，先上传几张想模仿的小红书图。</div>`}
+      <div class="row"><button type="button" data-do="uploadRef" data-style="${PICK.style === 'own' ? 'other' : PICK.style}">＋ 上传${PICK.style === 'own' ? '' : '到「' + styleName + '」'}参考图</button></div></div>
+    <label class="f">补充要求（可不填）<input id="lockNote" value="${esc(PICK.note || '')}" placeholder="例：外套扣子全扣上；下装和鞋保留参考图原来的"></label>
+    <div class="sec"><label class="row small" style="flex-wrap:nowrap;align-items:flex-start;gap:8px"><input type="checkbox" id="autoWrite" ${PICK.autoWrite ? 'checked' : ''} style="width:auto"> 出完自动挑 A 级图写文案（有这款的选题就用上），写好放进「文案 › 审稿」</label>
+      ${PICK.autoWrite ? `<label class="row small" style="flex-wrap:nowrap;align-items:flex-start;gap:8px;margin-left:24px"><input type="checkbox" id="autoSplit" ${PICK.split === 2 ? 'checked' : ''} style="width:auto"> 图够 4 张就拆成 2 篇（身材尺码一篇、场景搭配一篇）</label>` : ''}</div>
+    ${D.accounts.length > 1 ? `<div class="row between small"><span class="muted">同一款要发好几个号？每个号按自己记住的拍法各出一组，图不重复，出完各写各的稿。</span><button type="button" class="ghost" data-do="multiShoot" data-id="${esc(it.id)}">给几个号各出一组</button></div>` : ''}
+    <div class="actions"><span class="small muted">${PICK.refs.length ? `${PICK.refs.length} 张 · 约 ${est} 分钟 · 额度用完会停在当前张，恢复后再点只补没出的` : '先选参考图'}</span>
+      <button type="button" class="primary big" data-do="lock" data-id="${esc(it.id)}" ${PICK.refs.length && (PICK.face !== 'model' || PICK.model) ? '' : 'disabled'}>开始出图</button></div>`;
+}
+function facePick(models) {
+  return `<div class="hint">第一次出图后，这款在「${esc((acc() || {}).name || '')}」就固定用这里选的脸部处理${PICK.face === 'model' ? '和模特' : ''}，之后每次自动带上，不能临时换。</div>
     <div class="sec"><h3>参考图里的人怎么处理</h3><div class="opt">
       <label><input type="radio" name="face" value="hide" ${PICK.face === 'hide' ? 'checked' : ''}><span><b>不露脸</b>${PICK.style === 'mirror' ? '（对镜自拍推荐）' : ''}<br><span class="small muted">保留参考图里用手机挡脸，或裁到嘴巴以下。每张约 2–3 分钟</span></span></label>
       <label><input type="radio" name="face" value="model" ${PICK.face === 'model' ? 'checked' : ''}><span><b>换成我们的模特</b><br><span class="small muted">动作和场景照参考图，脸和发型换成我们的模特。每张约 6–8 分钟</span></span></label>
@@ -603,22 +654,19 @@ function shootPage(it) {
       <label><input type="radio" name="face" value="none" ${PICK.face === 'none' ? 'checked' : ''}><span><b>参考图里没有人</b><br><span class="small muted">挂拍、平铺、叠放这类静物图，只换衣服、不加人。每张约 2–3 分钟</span></span></label>
     </div></div>
     ${PICK.face === 'model' ? `<div class="sec"><div class="h"><h3>谁来穿</h3><button type="button" class="link" data-do="goSub" data-tab="img" data-sub="lib">管理模特</button></div>
-      ${models.length ? `<div class="models">${models.map(m => modelCard(m, true)).join('')}</div>` : '<div class="hint warn">还没有模特。到「模特和参考图库」看怎么加。</div>'}</div>` : ''}
-    <div class="sec"><div class="h"><h3>照哪些图拍</h3><span class="small muted">每选一张出一张；${PICK.style === 'own' ? '' : `已带上「${styleName}」这组，`}建议 4–6 张</span></div>
-      ${shown.length ? `<div class="refs">${shown.map(r => { const n = PICK.refs.indexOf(r); return `<button type="button" class="ref" data-do="pickRef" data-ref="${esc(r)}" aria-pressed="${n >= 0}"><img class="th" src="${img(r)}" alt="">${n >= 0 ? `<span class="n">${n + 1}</span>` : ''}<span class="l">${esc(stem(r))}</span></button>`; }).join('')}</div>`
-        : `<div class="hint warn">${PICK.style === 'own' ? '参考图库是空的' : `「${styleName}」这组还没有参考图`}，先上传几张想模仿的小红书图。</div>`}
-      <div class="row"><button type="button" data-do="uploadRef" data-style="${PICK.style === 'own' ? 'other' : PICK.style}">＋ 上传${PICK.style === 'own' ? '' : '到「' + styleName + '」'}参考图</button></div></div>
-    <label class="f">补充要求（可不填）<input id="lockNote" placeholder="例：外套扣子全扣上；下装和鞋保留参考图原来的"></label>
-    <div class="sec"><label class="row small" style="flex-wrap:nowrap;align-items:flex-start;gap:8px"><input type="checkbox" id="autoWrite" ${PICK.autoWrite ? 'checked' : ''} style="width:auto"> 出完自动挑 A 级图写文案（有这款的选题就用上），写好放进「文案 › 审稿」</label>
-      ${PICK.autoWrite ? `<label class="row small" style="flex-wrap:nowrap;align-items:flex-start;gap:8px;margin-left:24px"><input type="checkbox" id="autoSplit" ${PICK.split === 2 ? 'checked' : ''} style="width:auto"> 图够 4 张就拆成 2 篇（身材尺码一篇、场景搭配一篇）</label>` : ''}</div>
-    ${D.accounts.length > 1 ? `<div class="row between small"><span class="muted">同一款要发好几个号？每个号按自己记住的拍法各出一组，图不重复，出完各写各的稿。</span><button type="button" class="ghost" data-do="multiShoot" data-id="${esc(it.id)}">给几个号各出一组</button></div>` : ''}
-    <div class="actions"><span class="small muted">${PICK.refs.length ? `${PICK.refs.length} 张 · 约 ${est} 分钟 · 额度用完会停在当前张，恢复后再点只补没出的` : '先选参考图'}</span>
-      <button type="button" class="primary big" data-do="lock" data-id="${esc(it.id)}" ${PICK.refs.length && (PICK.face !== 'model' || PICK.model) ? '' : 'disabled'}>开始出图</button></div>`;
+      ${models.length ? `<div class="models">${models.map(m => modelCard(m, true)).join('')}</div>` : '<div class="hint warn">还没有模特。到「模特和参考图库」看怎么加。</div>'}</div>` : ''}`;
 }
+function lockCard(it, c) {
+  const m = c.face === 'model' ? D.lock.models.find(x => x.name === c.model) : null;
+  return `<div class="sec"><div class="h"><h3>谁来穿 · 已固定</h3><button type="button" class="link" data-do="castLog" data-id="${esc(it.id)}">改动记录</button></div>
+    <div class="lockcard"><div class="stack" style="gap:6px"><b>${esc(castText(c))}</b><span class="small muted">这款在「${esc((acc() || {}).name || '')}」固定用这个${c.at ? `（${fmtD(c.at)} 定下）` : ''}，每次出图自动带上，不能临时换。</span>
+      ${m ? `<div class="faces">${FACE_UI.slice(0, 4).map(([k, l]) => m.faces[k] ? `<img src="${img(m.faces[k])}" alt="${l}" title="${l}">` : `<div class="ph miss" title="${l}">缺</div>`).join('')}</div>${m.missing.length ? `<span class="pill warn">资料卡缺${m.missing.join('、')}</span>` : ''}` : c.face === 'model' ? '<span class="pill bad">找不到这个模特了，解锁换一个</span>' : ''}</div>
+      <button type="button" class="ghost" data-do="unlockCast" data-id="${esc(it.id)}">解锁换人</button></div></div>`;
+}
+const FACE_UI = [['face_1', '正脸'], ['face_left', '左侧脸'], ['face_right', '右侧脸'], ['body_1', '全身'], ['face_closeup', '特写']];
 function modelCard(m, pick) {
-  const tags = [['face_1', '正'], ['face_2', '半侧'], ['face_3', '全侧'], ['body_1', '全身']];
-  const inner = `<b>${esc(m.name)}${m.size ? ' · ' + esc(m.size) : ''}</b>
-    <div class="faces">${tags.map(([k, l]) => m.faces[k] ? `<img src="${img(m.faces[k])}" alt="${l}" title="${l}">` : `<div class="ph ${k === 'body_1' ? '' : 'miss'}">${k === 'body_1' ? '无' : '缺'}</div>`).join('')}</div>
+  const inner = `<b>${esc(m.name)}${m.size ? ' · ' + esc(m.size) : ''}</b>${m.info && m.info.hair ? `<span class="small muted">${esc(m.info.hair)}</span>` : ''}
+    <div class="faces">${FACE_UI.slice(0, 4).map(([k, l]) => m.faces[k] ? `<img src="${img(m.faces[k])}" alt="${l}" title="${l}">` : `<div class="ph miss" title="${l}">缺</div>`).join('')}</div>
     ${m.missing.length ? `<span class="pill warn">缺${m.missing.join('、')}，这个角度容易不像</span>` : '<span class="pill good">照片齐了</span>'}`;
   return pick ? `<button type="button" class="model" data-do="pickModel" data-name="${esc(m.name)}" aria-pressed="${PICK.model === m.name}">${inner}</button>` : `<div class="model panel">${inner}</div>`;
 }
@@ -626,25 +674,45 @@ function resultPage(it) {
   const last = myJobs(it).find(j => j.images.length);
   const addReal = `<button type="button" data-do="addReal" data-id="${esc(it.id)}">＋ 加实拍图</button>`;
   if (!last && !(it.realPhotos || []).length) return `<div class="empty">还没有出好的图。<button type="button" class="link" data-do="goSub" data-tab="img" data-sub="shoot">去 ② 出图</button>，或者直接用自己拍的：<br><br>${addReal}</div>`;
-  const g = it.grades || {};
+  const g = it.grades || {}, cur = batchOf(it);
   const pool = imgPool(it);
   if (W.item !== it.id) { W.item = it.id; W.imgs = []; }
-  W.imgs = W.imgs.filter(p => pool.includes(p));
+  W.imgs = W.imgs.filter(p => pool.includes(p) && !isBad(it, p));
   if (!W.imgs.length) W.imgs = defaultImgs(it);
-  const n = Object.values(g).reduce((o, x) => (o[x.grade || '?'] = (o[x.grade || '?'] || 0) + 1, o), {});
-  return `<div class="hint">${last ? `这批出了 ${last.images.length} 张：A ${n.A || 0} · B ${n.B || 0}${last.rejected ? ` · ${last.rejected} 张没通过已放进 rejected` : ''}。A 能直接用；B 衣服对、小地方请放大看。` : '这款还没出 AI 图，下面是实拍图。'}${(it.realPhotos || []).length ? `实拍图 ${it.realPhotos.length} 张，不过 AI，可以和 AI 图混着用。` : ''}点图选择，<b>第 1 张是封面</b>。</div>
-    <div class="refs">${pool.map(p => { const k = W.imgs.indexOf(p), gr = g[p]; return `<button type="button" class="ref" data-do="pickImg" data-p="${esc(p)}" aria-pressed="${k >= 0}"><img class="th" src="${img(p)}" alt="">${k >= 0 ? `<span class="n">${k === 0 ? '封面' : k + 1}</span>` : ''}<span class="g">${gradePill(gr) || (isReal(it, p) ? '<span class="pill">实拍</span>' : '')}</span><span class="l">${esc(gr && gr.note ? gr.note : base(p))}</span></button>`; }).join('')}</div>
+  const n = (cur ? cur.images : []).reduce((o, p) => { const x = (g[p] || {}).grade || '?'; o[x] = (o[x] || 0) + 1; return o; }, {});
+  const rej = cur ? Object.entries(D.imgRejected || {}).filter(([p]) => p.startsWith(cur.dir + '/')) : [];
+  return `${batchSel(it)}<div class="hint">${cur ? `这批出了 ${cur.images.length} 张：A ${n.A || 0} · B ${n.B || 0}${n.C ? ` · C ${n.C}（灰掉的不能用）` : ''}${cur.rejected ? ` · ${cur.rejected} 张没通过已放进 rejected` : ''}。A 能直接用；B 衣服对、小地方请放大看。<b>一篇只能用同一批的图</b>，不满意的点图下面「驳回」。` : '这款还没出 AI 图，下面是实拍图。'}${(it.realPhotos || []).length ? `实拍图 ${it.realPhotos.length} 张，不过 AI，可以和 AI 图混着用。` : ''}点图选择，<b>第 1 张是封面</b>。</div>
+    <div class="refs">${pool.map(p => imgTile(it, p, W.imgs, true)).join('')}</div>
+    ${rej.length ? `<details><summary class="small">这批驳回了 ${rej.length} 张</summary><div class="stack" style="gap:6px;margin-top:8px">${rej.map(([p, x]) => `<div class="row small" style="flex-wrap:nowrap"><img src="${img(x.to)}" alt="" style="width:36px;height:48px;object-fit:cover;border-radius:6px"><span>${esc(base(p))} · ${esc(x.why)} · ${fmtDT(x.at)}</span><button type="button" class="ghost" data-do="imgRestore" data-p="${esc(p)}">恢复</button></div>`).join('')}</div></details>` : ''}
     <div class="row">${addReal}<span class="small muted">上身、挂拍、平铺、手摸面料都行；要删在「照片和资料」里删</span></div>
-    <div class="actions"><button type="button" class="link" data-do="report" data-id="${esc(it.id)}" ${last ? '' : 'hidden'}>看出图报告</button>
+    <div class="actions"><div class="row"><button type="button" class="link" data-do="report" data-id="${esc(it.id)}" ${cur ? '' : 'hidden'}>看出图报告</button><button type="button" class="link" data-do="imgInfo" data-id="${esc(it.id)}" ${cur ? '' : 'hidden'}>这批的配方</button></div>
       <button type="button" class="primary big" data-do="toWrite" ${W.imgs.length ? '' : 'disabled'}>用选中的 ${W.imgs.length} 张图写文案 →</button></div>`;
+}
+function castOpts(cur, blank) {
+  const v = cur && cur.face ? (cur.face === 'model' ? 'model:' + cur.model : cur.face) : '';
+  const o = [['', blank]].concat(D.lock.models.map(m => ['model:' + m.name, '换成模特 ' + m.name + (m.missing.length ? '（资料卡缺' + m.missing.join('、') + '）' : '')]),
+    [['hide', '不露脸'], ['ai', 'AI 脸'], ['none', '没有人的静物']]);
+  return o.map(([k, l]) => `<option value="${esc(k)}" ${k === v ? 'selected' : ''}>${esc(l)}</option>`).join('');
+}
+const parseCast = v => !v ? null : v.startsWith('model:') ? {face: 'model', model: v.slice(6)} : {face: v, model: ''};
+function modelEdit(m) {
+  const i = m.info || {};
+  return `<div class="model panel" data-model="${esc(m.name)}"><div class="row between"><b>${esc(m.name)}</b>${m.missing.length ? `<span class="pill warn">缺${m.missing.join('、')}</span>` : '<span class="pill good">资料卡齐了</span>'}</div>
+    <div class="mslots">${FACE_UI.map(([k, l], n) => `<button type="button" class="mslot ${n < 4 && !m.faces[k] ? 'miss' : ''}" data-do="modelPhoto" data-name="${esc(m.name)}" data-slot="${k}" title="上传${l}">${m.faces[k] ? `<img src="${img(m.faces[k])}" alt="${l}">` : '＋'}<span>${l}</span></button>`).join('')}</div>
+    <label class="f">发色发型<input data-minfo="hair" value="${esc(i.hair || '')}" placeholder="黑色齐肩短发，空气刘海"></label>
+    <label class="f">身高体重<input data-minfo="height" value="${esc(i.height || '')}" placeholder="160cm 48kg"></label>
+    <label class="f">身材比例<input data-minfo="ratio" value="${esc(i.ratio || '')}" placeholder="腿长、肩窄、腰细，头身比 1:7"></label>
+    <div class="row" style="justify-content:flex-end"><button type="button" data-do="saveModel" data-name="${esc(m.name)}">保存资料</button></div></div>`;
 }
 function libPage() {
   const groups = Object.keys(D.styles).map(k => [k, D.styles[k], D.lock.refs.filter(r => refStyle(r) === k)]);
   const own = k => (D.styleGroups || []).find(g => g.id === k);
   return `<div class="stack">
-    <div class="panel pad stack"><div class="row between"><h2>模特</h2></div>
-      <div class="hint">每位模特在锁图文件夹 <span class="num">${esc(D.lock.path)}/library/models/</span> 下建一个以名字命名的文件夹，放 <b>face_1_front</b> 正脸、<b>face_2_half</b> 半侧、<b>face_3_profile</b> 全侧、<b>face_closeup</b> 特写、<b>body_1_front</b> 全身；profile.md 写清「160/48」这样的身高体重。缺哪个角度，那个角度的图最容易不像。</div>
-      <div class="models">${D.lock.models.length ? D.lock.models.map(m => modelCard(m, false)).join('') : '<div class="empty">还没有模特。</div>'}</div></div>
+    <div class="panel pad stack"><div class="row between"><h2>模特资料卡</h2><button type="button" data-do="newModel">＋ 新模特</button></div>
+      <div class="hint">每位模特放 <b>正脸、左侧脸、右侧脸、全身</b> 4 张，再写发色、身高体重和身材比例。出图时 AI 看每张参考图里人脸朝哪边，挑对应角度那张贴脸；身材比例照全身照，不会拉长腿。点照片位上传或替换。</div>
+      <div class="models">${D.lock.models.length ? D.lock.models.map(modelEdit).join('') : '<div class="empty">还没有模特。点「新模特」开始。</div>'}</div></div>
+    <div class="panel pad stack"><h2>每个号固定用谁</h2><div class="small muted">上新时每个号自动带上这里选的，建款时还能按款改。一款在一个号定下来后，之后每次出图都用它。</div>
+      <div class="stack" style="gap:8px">${D.accounts.map(a => `<label class="row" style="flex-wrap:nowrap;gap:10px"><b style="min-width:140px">${esc(a.name)}</b><select data-acast="${esc(a.id)}" style="width:auto">${castOpts(a.cast, '不固定，上新时再选')}</select></label>`).join('')}</div></div>
     <div class="row between"><span class="small muted">每个号的拍法不一样，可以自己加一组，比如「工作室静物」「书桌房间」「灰棚 lookbook」。</span><button type="button" data-do="newGroup">＋ 新建一组风格</button></div>
     ${groups.map(([k, name, list]) => `<div class="panel pad stack"><div class="row between"><h2>参考图 · ${esc(name)} <span class="small muted">${list.length} 张</span></h2>
         <div class="row">${own(k) ? `<button type="button" class="ghost" data-do="editGroup" data-k="${esc(k)}">改名和说明</button><button type="button" class="ghost danger" data-do="delGroup" data-k="${esc(k)}">删掉这组</button>` : ''}<button type="button" data-do="uploadRef" data-style="${esc(k)}">＋ 上传到「${esc(name)}」</button></div></div>
@@ -700,7 +768,11 @@ function reviewPage(R) {
   const clash = (used.length ? `<div class="notice bad"><b>第 ${used.map(u => imgs.indexOf(u.img) + 1).join('、')} 张图已经在「${esc(used[0].account)}」用过了。</b>同一张图发两个号容易被判搬运限流，去掉才能定稿。
       ${used.length < imgs.length ? `<button type="button" class="ghost" data-do="dropClash" data-id="${r.id}">去掉这${used.length > 1 ? ' ' + used.length : ''}张</button>` : '这篇的图全被用过了，回「出好的图」给这个号重新挑。'}</div>` : '')
     + (cl.similar ? `<div class="notice">${cl.similar.what}和「${esc(cl.similar.account)}」那篇「${esc(cl.similar.title)}」太像了。同一款在不同号要换个角度写，点下面「换个角度」让 AI 改。</div>` : '');
+  const held = D.schedule.find(s => String(s.review) === String(r.id) && s.status === 'hold');
+  const badImgs = imgs.filter(p => (D.imgRejected || {})[p]);
   return `${st === 'rejected' ? '<div class="notice bad"><b>这篇已驳回。</b>改好点「保存」就回到待审。</div>' : ''}${clash}
+    ${held ? `<div class="notice"><b>原定 ${fmtDT(held.at)} 发，排期先停住了</b>：${esc(held.error || '稿子改过')}。改好点「文案定稿」，在「发布」里可以选回原来的时间。</div>` : ''}
+    ${badImgs.length ? `<div class="notice bad"><b>第 ${badImgs.map(p => imgs.indexOf(p) + 1).join('、')} 张图已经驳回了</b>，去掉才能定稿。${badImgs.length < imgs.length ? `<button type="button" class="ghost" data-do="dropRejected" data-id="${r.id}">去掉驳回的图</button>` : '图全被驳回了，回「出好的图」重新挑。'}</div>` : ''}
     <div class="row between"><div class="row">${imgs.map(p => `<a href="${img(p)}" target="_blank" rel="noopener"><img src="${img(p)}" alt="" style="width:36px;height:48px;object-fit:cover;border-radius:6px;background:var(--soft);display:block"></a>`).join('') || '<span class="pill bad">没有图</span>'}
       <span class="small muted">配的 ${imgs.length} 张图（看着写的，封面和顺序在「发布」里调）${imgs.some(p => (g[p] || {}).grade === 'B') ? ' · 有 B 级图' : ''}</span></div>
       ${c.ok && !c.warns.length ? `<span class="pill good">无违规词 · ${(r.tags || []).length} 个话题 · ${len(r.body)} 字 · 写了尺码</span>` : `<span>${checks}</span>`}</div>
@@ -730,7 +802,7 @@ function writePage() {
   if (!items.some(i => i.id === W.item)) { W.item = items[0].id; W.imgs = []; }
   const it = items.find(i => i.id === W.item), g = it.grades || {};
   const pool = imgPool(it);
-  W.imgs = W.imgs.filter(p => pool.includes(p));
+  W.imgs = W.imgs.filter(p => pool.includes(p) && !isBad(it, p));
   if (!W.imgs.length) W.imgs = defaultImgs(it);
   const cover = W.cover || (acc() || {}).cover || 'text';
   const un = unusedTopics();
@@ -740,8 +812,9 @@ function writePage() {
   const order = un.slice().sort((a, b) => (b.item === it.id) - (a.item === it.id));
   return `${job ? busyHint('正在写这款的文案，写好后出现在「审稿」。') : ''}
     <div class="sec"><div class="h"><h3>写哪件、用哪些图</h3><span class="small muted">点图选择，第 1 张是封面</span></div>
-      <select id="wItem" style="width:auto">${items.map(i => `<option value="${esc(i.id)}" ${i.id === it.id ? 'selected' : ''}>${esc(i.name)}（${imgPool(i).length} 张图）</option>`).join('')}</select>
-      <div class="refs">${pool.map(p => { const k = W.imgs.indexOf(p), gr = g[p]; return `<button type="button" class="ref" data-do="pickImg" data-p="${esc(p)}" aria-pressed="${k >= 0}"><img class="th" src="${img(p)}" alt="">${k >= 0 ? `<span class="n">${k === 0 ? '封面' : k + 1}</span>` : ''}<span class="g">${gradePill(gr) || (isReal(it, p) ? '<span class="pill">实拍</span>' : '')}</span></button>`; }).join('')}</div></div>
+      <div class="row"><select id="wItem" style="width:auto">${items.map(i => `<option value="${esc(i.id)}" ${i.id === it.id ? 'selected' : ''}>${esc(i.name)}（${imgPool(i).length} 张图）</option>`).join('')}</select>${batchSel(it)}</div>
+      <div class="refs">${pool.map(p => imgTile(it, p, W.imgs, false)).join('')}</div>
+      <div class="small muted">一篇只能用同一批的图，没通过检查和驳回的图选不了；实拍图可以随便加。</div></div>
     <div class="sec"><div class="h"><h3>选题</h3><span class="small muted">从选题库挑，写完自动标为已用</span></div>
       <select id="wTopic"><option value="">不用选题，按这款自己找角度</option>${order.map(t => `<option value="${esc(t.id)}" ${t.id === W.topic ? 'selected' : ''}>${esc(t.text)}${t.item === it.id ? '（和这款最贴）' : ''}</option>`).join('')}</select></div>
     <div class="sec"><h3>这款发几篇</h3><div class="opt two-col">
@@ -805,7 +878,9 @@ function pagePub(sub) {
 function whenOpts(r) {
   // 自动时间按这一篇算：同一款和别的号隔开 2 天，和别的号错开 30 分钟，起号阶段这周排满就往后
   const ns = r && (D.nextSlotFor || {})[String(r.id)] !== undefined ? D.nextSlotFor[String(r.id)] : (D.nextSlot || {})[String(UI.acc)];
-  return (ns ? [{k: 'auto', l: '自动：' + fmtDT(ns), at: 'auto', show: ns}] : []).concat([{k: 'now', l: '立即', at: null}, {k: 'own', l: '自选时间', at: 0}]);
+  // 改过稿停住的排期：可以回到原来的时间
+  const held = r && D.schedule.find(s => String(s.review) === String(r.id) && s.status === 'hold' && s.at > Date.now() + 20 * 60e3);
+  return (held ? [{k: 'orig', l: '原定：' + fmtDT(held.at), at: held.at}] : []).concat(ns ? [{k: 'auto', l: '自动：' + fmtDT(ns), at: 'auto', show: ns}] : [], [{k: 'now', l: '立即', at: null}, {k: 'own', l: '自选时间', at: 0}]);
 }
 function queuePage(r) {
   const st = draftState(r), imgs = r.images || [], g = allGrades();
@@ -882,7 +957,7 @@ function calPage() {
   const ws = weekStart(UI.week);
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const wk = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
-  const lab = {pending: '待发', running: '发布中', done: '已发', failed: '没发出', missed: '错过', cancelled: '已取消'};
+  const lab = {pending: '待发', running: '发布中', done: '已发', failed: '没发出', missed: '错过', cancelled: '已取消', hold: '改过待确认'};
   let empty = 0;
   const days = wk.map((w, i) => {
     const d0 = ws + i * 864e5, items = S.filter(s => s.at >= d0 && s.at < d0 + 864e5 && s.status !== 'cancelled').sort((a, b) => a.at - b.at);
@@ -1030,10 +1105,14 @@ function dlgNew() {
   openDlg(`<h2>上新</h2><p class="small muted" style="margin:0">把照片拖进来就行。AI 会读吊牌填好名称、面料、尺码，再写出图要用的档案，大约 3–5 分钟。</p>
     <div class="intake">${drop('front', '衣服正面照', '必须，纯色背景平铺或挂拍')}${drop('tag', '吊牌照', '建议，拍清成分和尺码')}</div>
     <input type="file" id="newFile" accept="image/*" hidden>
-    <label class="f">名称（可不填，AI 会起）<input id="it-name" placeholder="例如：灰色长毛翻领外套"></label>` + btns('交给 AI'),
-  async () => {
+    <label class="f">名称（可不填，AI 会起）<input id="it-name" placeholder="例如：灰色长毛翻领外套"></label>
+    <div class="stack" style="gap:8px"><b>每个号谁来穿</b><span class="small muted" style="margin-top:-6px">定下后这款在这个号每次出图都用它，不能临时换（要换得解锁并写原因）。默认值在「模特和参考图库」里设。</span>
+      ${D.accounts.map(a => `<label class="row" style="flex-wrap:nowrap;gap:10px"><span style="min-width:120px">${esc(a.name)}</span><select data-ncast="${esc(a.id)}" style="width:auto">${castOpts(a.cast, '先不定，第一次出图时再选')}</select></label>`).join('')}</div>` + btns('交给 AI'),
+  async f => {
     if (!P.front) { toast('至少放一张衣服正面照'); return false; }
-    const j = await api('/api/item/new', {name: $('#it-name').value.trim(), photos: P, account: ''});
+    const cast = {};
+    f.querySelectorAll('[data-ncast]').forEach(x => { const c = parseCast(x.value); if (c) cast[x.dataset.ncast] = c; });
+    const j = await api('/api/item/new', {name: $('#it-name').value.trim(), photos: P, account: '', cast});
     if (!j) return false;
     UI.item = j.item.id; save(); go('img', 'info');
     toast(j.job ? 'AI 开始读照片和吊牌；你先把材质手感和痛点填上' : '已添加；找不到锁图工作台，先在设置里填好路径');
@@ -1073,6 +1152,33 @@ function dlgMulti(it) {
     toast(`已给 ${j.queued.map(q => nm(q.account)).join('、') || '0 个号'} 排上出图${j.skipped.length ? `；跳过 ${j.skipped.map(x => nm(x.account) + '（' + x.why + '）').join('、')}` : ''}`);
   });
 }
+// 一批图（或其中一张）的配方：用了什么模特、参考图、产品图，AI 报的生图模型和 seed。可以照着再出
+function dlgRecipe(it, p) {
+  const j = p ? myJobs(it).find(x => x.images.includes(p)) : batchOf(it);
+  if (!j) return;
+  const r = j.recipe || {}, gen = (j.gen || {})[base(p || '')] || {}, rows = r.rows || [], row = p ? rows.find(x => x.out === base(p)) || (rows.length === j.images.length ? rows[j.images.indexOf(p)] : null) : null, gr = p ? (it.grades || {})[p] : null;
+  const names = l => (l || []).map(x => esc(base(x))).join('、') || '—';
+  const kv = [['批次', esc(j.name)], ['脸和模特', esc(castText(r)) || '—'], ['风格', esc(D.styles[r.style] || '自己挑')],
+    p ? ['素材图', row ? esc(stem(row.ref)) : '—'] : ['素材图', `${(r.refs || []).length} 张：${names(r.refs)}`],
+    ['附的产品图', names(r.product)], ['模特照片', r.face === 'model' ? names(r.modelPhotos) : '—'], ['补充要求', esc(r.note || '无')]];
+  if (p) kv.push(['生图模型', esc(gen.model || 'AI 没记')], ['seed', esc(gen.seed || '拿不到（Codex 生图不给 seed，照着再出会很像，但不会一模一样）')],
+    ['实际附的图', names(gen.attached)], ['返工', gen.retries != null ? esc(gen.retries) + ' 次' : '—'], ['检查', gr ? esc((gr.grade || '') + ' ' + (gr.note || '')) : '—']);
+  if (!r.refs) kv.push(['', '这批是老版本出的，没有记录配方']);
+  openDlg(`<h2>${p ? '这张图的参数' : '这批的配方'}</h2>${p ? `<div class="row">${[p, row && row.ref].filter(Boolean).map((x, i) => `<figure style="margin:0"><img src="${img(x)}" alt="" style="width:110px;border-radius:8px;display:block"><figcaption class="small muted">${i ? '素材图' : '成品'}</figcaption></figure>`).join('')}</div>` : ''}
+    <table class="kv">${kv.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</table>`
+    + `<div class="row" style="justify-content:flex-end"><button value="cancel" formnovalidate>关闭</button>${r.refs && row ? '<button value="one">照这张再出 1 张</button>' : ''}${r.refs ? '<button value="all" class="primary">整批照这个配方再出</button>' : ''}</div>`,
+  async (f, v) => {
+    if (v !== 'one' && v !== 'all') return true;
+    const refs = (v === 'one' ? [row.ref] : r.refs).filter(x => D.lock.refs.includes(x));
+    if (!refs.length) { toast('这批用的参考图已经从图库移除了'); return false; }
+    PICK.init = it.id; PICK.fromAcc = false; PICK.reuse = j.name;
+    PICK.style = styleOpts().some(s => s[0] === r.style) ? r.style : 'own';
+    PICK.face = r.face; if (r.model) PICK.model = r.model;
+    PICK.refs = refs; PICK.note = r.note || '';
+    UI.item = it.id; go('img', 'shoot');
+    return true;
+  });
+}
 function dlgGroup(g = {}) {
   openDlg(`<h2>${g.id ? '改这组风格' : '新建一组风格'}</h2><p class="small muted" style="margin:0">建好后把想模仿的图上传到这组；出图选这组时，AI 会照着这些图和下面这句话拍。</p>
     <label class="f">名字（≤12 字）<input id="g-name" maxlength="12" required value="${esc(g.name || '')}" placeholder="例如：书桌房间"></label>
@@ -1080,9 +1186,9 @@ function dlgGroup(g = {}) {
   async f => !!(await api('/api/style/group', {action: g.id ? 'edit' : 'add', id: g.id, name: f.querySelector('#g-name').value.trim(), note: f.querySelector('#g-note').value.trim()})));
 }
 function dlgSlot(s) {
-  openDlg(`<h2>${esc(s.title)}</h2><p class="small muted" style="margin:0">${fmtDT(s.at)} · ${{pending: '待发', running: '发布中', done: '已发', failed: '没发出', missed: '错过', cancelled: '已取消'}[s.status]}${s.markAi === false ? ' · 不标 AI' : s.markAi ? ' · 标 AI 合成' : ''}</p>
+  openDlg(`<h2>${esc(s.title)}</h2><p class="small muted" style="margin:0">${fmtDT(s.at)} · ${{pending: '待发', running: '发布中', done: '已发', failed: '没发出', missed: '错过', cancelled: '已取消', hold: '改过待确认'}[s.status]}${s.markAi === false ? ' · 不标 AI' : s.markAi ? ' · 标 AI 合成' : ''}</p>
     ${s.error ? `<div class="notice bad">${esc(s.error)}</div>` : ''}${(s.log || []).length ? `<pre class="log">${esc(s.log.join('\n'))}</pre>` : ''}`
-    + `<div class="row" style="justify-content:flex-end">${s.status === 'pending' ? '<button value="un" class="danger">取消排期</button>' : ''}${['failed', 'missed', 'cancelled'].includes(s.status) && !s.rescheduled ? '<button value="re" class="primary">重新排期</button>' : ''}<button value="cancel" formnovalidate>关闭</button></div>`,
+    + `<div class="row" style="justify-content:flex-end">${['pending', 'hold'].includes(s.status) ? '<button value="un" class="danger">取消排期</button>' : ''}${['failed', 'missed', 'cancelled'].includes(s.status) && !s.rescheduled ? '<button value="re" class="primary">重新排期</button>' : ''}<button value="cancel" formnovalidate>关闭</button></div>`,
   async (f, v) => {
     if (v === 'un') return !!(await api('/api/unschedule', {id: s.id}));
     if (v === 're') return reschedule(s.id);
@@ -1137,6 +1243,11 @@ $('#logoFile').onchange = async e => {
   if (!f || !/^image\//.test(f.type)) { render(); return; }
   if (await api('/api/account/cover', {id: UI.acc, cover: 'logo', logo: await readFile(f)})) toast('logo 已上传，之后这个号的图右下角都放它');
 };
+$('#modelFile').onchange = async e => {
+  const f = e.target.files[0], {name, slot} = e.target.dataset; e.target.value = '';
+  if (!f || !/^image\//.test(f.type)) return;
+  if (await api('/api/model', {action: 'photo', name, slot, data: await readFile(f)})) toast('已上传');
+};
 $('#photoFile').onchange = e => { if (e.target.files[0]) uploadPhoto(e.target.dataset.id, e.target.dataset.slot, e.target.files[0]); e.target.value = ''; };
 document.addEventListener('change', e => {
   const t = e.target;
@@ -1159,6 +1270,8 @@ document.addEventListener('change', e => {
   if (t.id === 'whenAt') UI.whenAt = t.value;
   if (t.id === 'markAi') UI.markAi = t.checked;
   if (t.id === 'wItem') { W.item = t.value; W.imgs = []; W.topic = null; t.blur(); render(); }
+  if (t.id === 'batchSel') { UI.batch = UI.batch || {}; UI.batch[t.dataset.id] = t.value; W.imgs = []; t.blur(); render(); }
+  if (t.dataset && t.dataset.acast) { const c = parseCast(t.value); api('/api/account/cast', Object.assign({id: t.dataset.acast}, c || {face: ''})).then(j => j && toast(c ? '已设好，之后上新自动带上' : '已改成不固定')); t.blur(); }
   if (t.id === 'wTopic') W.topic = t.value;
   if (t.id === 'trialItem') W.trialItem = t.value;
   if (t.dataset && t.dataset.refstyle) api('/api/ref/style', {path: t.dataset.refstyle, style: t.value}).then(j => j && toast('已移到「' + D.styles[t.value] + '」'));
@@ -1209,6 +1322,44 @@ document.addEventListener('click', async e => {
     case 'pickLogo': $('#logoFile').click(); break;
     case 'style': { const cur = D.items.find(i => i.id === UI.item); if (cur) initPick(cur, b.dataset.k); render(); break; }
     case 'pickModel': PICK.model = b.dataset.name; render(); break;
+    case 'unlockCast': {
+      const c = castOf(id);
+      openDlg(`<h2>解锁「${esc(it.name)}」的模特</h2><p class="small muted" style="margin:0">现在在「${esc((acc() || {}).name || '')}」固定用 ${esc(castText(c))}。解锁后下次出图重新选，选好又会固定下来。会留一条记录。</p>
+        <label class="f">为什么要换<input id="castWhy" placeholder="例：小禾这个月不合作了；这款要改成不露脸"></label>` + btns('解锁'), async () => {
+        const why = $('#castWhy').value.trim(); if (!why) { toast('写一句为什么要换'); return false; }
+        const j = await api('/api/item/cast', {item: id, account: UI.acc, action: 'unlock', why});
+        if (j) { PICK.init = ''; toast('已解锁，重新选好再出图'); }
+        return !!j;
+      });
+      break; }
+    case 'castLog': {
+      const L = (D.castLog || []).filter(x => x.item === id).reverse(), nm = a => (D.accounts.find(x => String(x.id) === String(a)) || {}).name || a;
+      openDlg(`<h2>「${esc(it.name)}」模特改动记录</h2><div class="stack" style="gap:6px">${L.map(x => `<div class="small"><b>${fmtDT(x.at)}</b> · ${esc(nm(x.account))} · ${esc(x.what)}${x.why ? '<span class="muted">（' + esc(x.why) + '）</span>' : ''}</div>`).join('') || '<div class="empty">没有记录</div>'}</div>` + closeBtn, () => {});
+      break; }
+    case 'newModel':
+      openDlg('<h2>新模特</h2><label class="f">名字<input id="mName" placeholder="例：小禾"></label><p class="small muted" style="margin:0">建好后在卡片上传正脸、左侧脸、右侧脸、全身，再写发色和身高比例。</p>' + btns('建好'), async () => {
+        const name = $('#mName').value.trim(); if (!name) { toast('写个名字'); return false; }
+        return !!(await api('/api/model', {action: 'new', name}));
+      });
+      break;
+    case 'modelPhoto': { const fi = $('#modelFile'); fi.dataset.name = b.dataset.name; fi.dataset.slot = b.dataset.slot; fi.click(); break; }
+    case 'saveModel': {
+      const box = b.closest('[data-model]'), body = {action: 'info', name: b.dataset.name};
+      box.querySelectorAll('[data-minfo]').forEach(x => body[x.dataset.minfo] = x.value.trim());
+      document.activeElement.blur();
+      if (await api('/api/model', body)) toast('资料卡已保存，出图时会写进任务单');
+      break; }
+    case 'imgInfo': dlgRecipe(it, b.dataset.p); break;
+    case 'imgReject':
+      openDlg(`<h2>驳回这张图？</h2><img src="${img(b.dataset.p)}" alt="" style="width:120px;border-radius:8px"><p class="small muted" style="margin:0">图会挪进这批的 rejected 文件夹，写文案选不到。已经用了这张图的稿会退回待审，排期先停住。</p>
+        <label class="f">哪里不对（可不填）<input id="rejWhy" placeholder="例：手指多了一根；领子形状不对"></label>` + btns('驳回'), async () => {
+        const j = await api('/api/image', {action: 'reject', path: b.dataset.p, why: $('#rejWhy').value.trim()});
+        if (j) toast(j.drafts.length ? `已驳回；${j.drafts.length} 篇用了这张图的稿退回待审` : '已驳回');
+        return !!j;
+      });
+      break;
+    case 'imgRestore': if (await api('/api/image', {action: 'restore', path: b.dataset.p})) toast('已恢复'); break;
+    case 'dropRejected': { const bad = D.imgRejected || {}; if (await api('/api/review', {account: UI.acc, id, action: 'images', images: (r.images || []).filter(p => !bad[p])})) toast('已去掉'); break; }
     case 'pickRef': { const i = PICK.refs.indexOf(b.dataset.ref); if (i >= 0) PICK.refs.splice(i, 1); else PICK.refs.push(b.dataset.ref); render(); break; }
     case 'uploadRef': { const fi = $('#refFile'); fi.dataset.style = b.dataset.style; fi.click(); break; }
     case 'delRef': dlgConfirm('从参考图库移除？', '图会挪到 references/_removed 文件夹，要找回去那里拿。', '移除', () => api('/api/ref/delete', {path: b.dataset.ref})); break;
@@ -1216,7 +1367,7 @@ document.addEventListener('click', async e => {
       const params = {item: id, account: UI.acc, face: PICK.face, model: PICK.model, refs: PICK.refs, style: PICK.style, note: ($('#lockNote') || {}).value || ''};
       if (PICK.autoWrite && UI.acc) params.autoWrite = {account: UI.acc, count: PICK.split};
       const j = await api('/api/job', {kind: 'lock', params});
-      if (j) toast(`已开始出图，约 ${j.job.estimateMin} 分钟${params.autoWrite ? '，出完自动写文案' : ''}`);
+      if (j) { PICK.reuse = ''; toast(`已开始出图，约 ${j.job.estimateMin} 分钟${params.autoWrite ? '，出完自动写文案' : ''}`); }
       break; }
     case 'dropClash': { const used = ((r.clash || {}).images || []).map(u => u.img); if (await api('/api/review', {account: UI.acc, id, action: 'images', images: (r.images || []).filter(p => !used.includes(p))})) toast('已去掉，可以定稿了'); break; }
     case 'calMode': UI.calAll = b.dataset.k === 'all'; save(); render(); break;
