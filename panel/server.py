@@ -250,9 +250,15 @@ def read_data():
     login = st["xhsLogin"]
     accounts = [dict({"id": a["id"], "name": a["name"], "online": bool(login.get(str(a["id"]), {}).get("loggedIn")),
                       "checkedAt": login.get(str(a["id"]), {}).get("checkedAt"),
-                      "cover": account_cover(a), "logo": account_logo(a)},
+                      "cover": account_cover(a), "logo": account_logo(a), "persona": a.get("persona") or "",
+                      "startedAt": a.get("startedAt") or 0, "rhythm": account_rhythm(a),
+                      "realFirst": bool((PERSONAS.get(a.get("persona") or "") or {}).get("realFirst"))},
                      **{k: a.get(k, "") for k in COPY_KEYS}) for a in st["accounts"]]
     reviews = sorted((dict(d) for d in st["drafts"]), key=lambda d: d["id"], reverse=True)
+    names = {str(a["id"]): a["name"] for a in st["accounts"]}
+    for r in reviews:
+        if r["status"] != "已发布":
+            r["clash"] = draft_clash(st, r, names)
     archive = sorted(({"account_id": v["account"], "title": v["title"], "at": v["at"], "shot": v.get("shot", ""),
                        "review": k, "ai": v.get("ai"),
                        "published_at": fmt_ms(v["at"]) + ("（交给小红书定时）" if v.get("platform") else "")}
@@ -303,6 +309,30 @@ def clean_draft(d, images=True, account=None):
     validate_draft(out, images=images)
     out.pop("account_id", None)
     return out
+
+
+def draft_clash(st, r, names=None):
+    """矩阵防撞车：这篇的图有没有在别的号用过；标题、开头和别的号同款那篇是不是太像。"""
+    import difflib
+    names = names or {str(a["id"]): a["name"] for a in st["accounts"]}
+    aid = str(r["account_id"])
+    others = [d for d in st["drafts"] if str(d["account_id"]) != aid]
+    used = []
+    for p in r.get("images") or []:
+        d = next((d for d in others if p in (d.get("images") or [])), None)
+        if d:
+            used.append({"img": p, "account": names.get(str(d["account_id"]), "别的号")})
+    similar = None
+    head = lambda d: re.sub(r"\s+", "", d.get("body") or "")[:40]
+    pool = [d for d in others if d.get("item") == r["item"]] if r.get("item") else others[-50:]
+    for d in pool:
+        t = difflib.SequenceMatcher(None, r.get("title") or "", d.get("title") or "").ratio()
+        b = difflib.SequenceMatcher(None, head(r), head(d)).ratio() if head(r) and head(d) else 0
+        if t >= 0.6 or b >= 0.7:
+            similar = {"account": names.get(str(d["account_id"]), "别的号"), "title": d.get("title") or "",
+                       "what": "标题" if t >= 0.6 else "开头"}
+            break
+    return {"images": used, "similar": similar}
 
 
 def import_topics(p, data):
@@ -380,7 +410,47 @@ COPY_PRESETS = {
                   "tone": "品牌口吻，简洁有质感，像杂志旁白，不卖力推销",
                   "must": "系列或主题名 + 一句设计想法 + 面料和版型 + 尺码信息",
                   "banned": "", "tagMix": "品牌和系列 2、款式 3、风格 2、季节 2"},
+    "街拍号": {"position": "城市通勤女生的街头穿搭：一件衣服在路上怎么搭",
+               "tone": "朋友分享「今天穿」，短句，带上城市、天气或气温，不端着",
+               "must": "城市或天气 + 一套完整搭配（上衣、下装、鞋包）+ 模特身高体重和穿的码",
+               "banned": "", "tagMix": "场景 3、款式 3、城市或天气 2、季节 2"},
+    "测评号": {"position": "店主试穿笔记：身材真实，替你把尺码和缺点先试一遍",
+               "tone": "客观、先说缺点再说优点，像认真试过的人在提醒朋友，不夸张不吹",
+               "must": "试穿人身高体重和穿的码 + 至少一个缺点 + 选码建议（偏大偏小、什么身材慎入）",
+               "banned": "闭眼入、必买、天花板", "tagMix": "身材 3、款式 3、测评 2、季节 2"},
 }
+
+# 加号时选的人设：一次带出拍法、封面、文案设定和稳定后的每周篇数，之后都能改
+PERSONAS = {
+    "street": {"name": "街拍", "copy": "街拍号", "style": "street", "face": "hide", "cover": "text", "weekly": 4,
+               "desc": "户外全身抓拍，大字条封面，讲怎么搭"},
+    "review": {"name": "测评", "copy": "测评号", "style": "mirror", "face": "hide", "cover": "text", "weekly": 3, "realFirst": True,
+               "desc": "对镜试穿 + 细节特写，先说缺点给尺码；图建议用实拍"},
+    "still": {"name": "无人静物", "copy": "the reels", "style": "own", "face": "none", "cover": "none", "weekly": 3,
+              "desc": "挂拍、平铺、手摸面料，封面不加字"},
+    "room": {"name": "房间上身不露脸", "copy": "the rumah daily", "style": "own", "face": "hide", "cover": "none", "weekly": 4,
+             "desc": "固定房间上身照，裁头不露脸"},
+    "studio": {"name": "影棚 lookbook", "copy": "the rumah", "style": "own", "face": "model", "cover": "logo", "weekly": 3,
+               "desc": "固定模特露脸，品牌水印"},
+}
+# 新号起号节奏：开始后第几周 → 阶段名、这周最多排几篇（稳定后按人设的 weekly）
+RAMP = ((1, "养号", 1), (4, "冷启动", 4), (8, "定型", 5))
+ITEM_GAP_DAYS = 2        # 同一款在不同号之间至少隔几天
+CROSS_GAP_MIN = 30       # 不同号的发布时间至少错开几分钟
+
+
+def account_rhythm(a, at=None):
+    """起号进度：第几周、什么阶段、这周最多发几篇。没设开始日期的老号算稳定。"""
+    p = PERSONAS.get(a.get("persona") or "")
+    weekly = int(a.get("weekly") or (p or {}).get("weekly") or 0)
+    start = a.get("startedAt")
+    if not start:
+        return {"week": 0, "stage": "稳定", "target": weekly, "ramping": False}
+    week = max(1, int(((at or now_ms()) - start) // (7 * 864e5)) + 1)
+    for last, stage, cap in RAMP:
+        if week <= last:
+            return {"week": week, "stage": stage, "target": cap, "ramping": True}
+    return {"week": week, "stage": "稳定", "target": weekly, "ramping": False}
 
 
 def account_copy(aid):
@@ -760,6 +830,8 @@ def list_images(d, limit=12):
 PHOTO_SLOTS = {"front": "正面", "back": "背面", "detail_1": "面料近拍", "detail_2": "关键设计特写", "tag": "吊牌"}
 INFO_FIELDS = ("name", "code", "category", "colors", "sizes", "fabric", "price", "fit", "points")
 PEAK_SLOTS = ((12, 30), (20, 0))
+# 高峰被别的号占了，就往前后挪一点（矩阵里不同号错开 30 分钟以上）
+PEAK_NEAR = {(12, 30): ((13, 10), (11, 50), (13, 50)), (20, 0): ((20, 40), (19, 20), (21, 20), (21, 50))}
 FACE_SLOTS = [("face_1", "正脸"), ("face_2", "半侧"), ("face_3", "全侧"), ("face_closeup", "特写"), ("body_1", "全身")]
 FACE_MODES = {
     "model": "换成我们的模特 library/models/{model}（按 SKILL.md 模式 C3「换成我们的模特」三步做：出图时换发型，衣服通过后贴真脸，再融合）",
@@ -886,9 +958,21 @@ def item_view(it, rb, st):
     notes = d / "photo_notes.txt"
     it["photoNotes"] = [l.strip() for l in notes.read_text("utf-8", errors="replace").splitlines() if l.strip()] if notes.is_file() else []
     jobs = lock_jobs_for(it)
-    it["lockJobs"] = jobs[:3]
+    owner = st.get("jobAcc") or {}
+    for j in jobs:
+        j["account"] = owner.get(j["name"], "")
+    # 每个号最近一批 + 没标号的最近几批（老数据）；图片评级各批分开算
+    shown, seen = [], set()
+    for j in jobs:
+        if j["account"] and j["account"] in seen:
+            continue
+        seen.add(j["account"])
+        shown.append(j)
+    it["lockJobs"] = shown[:8]
     imgs = jobs[0]["images"] if jobs else []
-    it["grades"] = image_grades(jobs[0]["report"], imgs) if jobs else {}
+    it["grades"] = {}
+    for j in it["lockJobs"]:
+        it["grades"].update(image_grades(j["report"], j["images"]))
     it["drafts"] = len([r for r in rb["reviews"] if any(str(x) in str(r.get("images")) for x in imgs)]) if imgs else 0
     running = [j for j in st["jobs"] if j.get("params", {}).get("item") == it["id"] and j["status"] in ("queued", "running")]
     it["busy"] = running[0]["kind"] if running else ""
@@ -1190,21 +1274,40 @@ def r_item_new(body):
     return {"ok": True, "item": find_item(load_state(), it["id"]), "job": job}
 
 
-def next_slot(st, account, after=None):
-    """下一个空着的流量高峰（12:30 / 20:00）：至少 20 分钟后，这个号当天还没排过，前后 2 小时也没有别的。"""
+def next_slot(st, account, after=None, item=None):
+    """下一个空着的发布时段：至少 20 分钟后；这个号当天还没排过、前后 2 小时没有别的；
+    和别的号错开 30 分钟；同一款和别的号隔 2 天；起号阶段这周没排满。"""
     t0 = (after or now_ms()) + 20 * 60000
-    busy = [s["at"] for s in st["schedule"] if s.get("account") == str(account) and s["status"] in ("pending", "running", "done")]
+    live = [s for s in st["schedule"] if s["status"] in ("pending", "running", "done")]
+    busy = [s["at"] for s in live if s.get("account") == str(account)]
+    others = [s["at"] for s in live if s.get("account") != str(account)]
+    same_item = [s["at"] for s in live if s.get("account") != str(account) and item and schedule_item(st, s) == item]
+    a = next((x for x in st.get("accounts", []) if str(x["id"]) == str(account)), {})
     day = datetime.date.fromtimestamp(t0 / 1000)
-    for d in range(30):
+    for d in range(45):
         dd = day + datetime.timedelta(days=d)
-        taken = any(datetime.date.fromtimestamp(b / 1000) == dd for b in busy)
-        if taken:
+        if any(datetime.date.fromtimestamp(b / 1000) == dd for b in busy):
             continue
-        for h, m in PEAK_SLOTS:
-            at = int(datetime.datetime(dd.year, dd.month, dd.day, h, m).timestamp() * 1000)
-            if at >= t0 and all(abs(at - b) >= 2 * 3600000 for b in busy):
-                return at
+        if any(abs((datetime.date.fromtimestamp(b / 1000) - dd).days) < ITEM_GAP_DAYS for b in same_item):
+            continue
+        cap = account_rhythm(a, int(datetime.datetime(dd.year, dd.month, dd.day).timestamp() * 1000))["target"]
+        if cap:
+            mon = dd - datetime.timedelta(days=dd.weekday())
+            if len([b for b in busy if mon <= datetime.date.fromtimestamp(b / 1000) < mon + datetime.timedelta(days=7)]) >= cap:
+                continue
+        for peak in PEAK_SLOTS:
+            if int(datetime.datetime(dd.year, dd.month, dd.day, *peak).timestamp() * 1000) < t0:
+                continue
+            for h, m in (peak,) + PEAK_NEAR[peak]:
+                at = int(datetime.datetime(dd.year, dd.month, dd.day, h, m).timestamp() * 1000)
+                if at >= t0 and all(abs(at - b) >= 2 * 3600000 for b in busy) and all(abs(at - b) >= CROSS_GAP_MIN * 60000 for b in others):
+                    return at
     return None
+
+
+def schedule_item(st, entry):
+    d = next((x for x in st.get("drafts", []) if str(x["id"]) == str(entry.get("review"))), None)
+    return (d or {}).get("item") or ""
 
 
 def r_item_photo(body):
@@ -1483,9 +1586,13 @@ def api_state():
         "accounts": rb["accounts"], "reviews": rb["reviews"], "archive": rb["archive"],
         "items": items, "schedule": st["schedule"], "ready": st["ready"],
         "jobs": [{k: v for k, v in j.items() if k != "prompt"} for j in st["jobs"]][::-1],
-        "settings": st["settings"], "fashion": FASHION, "copyPresets": COPY_PRESETS, "now": now_ms(),
+        "settings": st["settings"], "fashion": FASHION, "copyPresets": COPY_PRESETS,
+        "personas": {k: {"name": v["name"], "desc": v["desc"]} for k, v in PERSONAS.items()}, "now": now_ms(),
         "lastPick": st.get("lastPick", {}),
         "nextSlot": {str(a["id"]): next_slot(st, a["id"]) for a in rb["accounts"]},
+        # 定稿待排的每篇：按它那一款算（同款和别的号隔开）
+        "nextSlotFor": {rid: next_slot(st, d["account_id"], item=d.get("item")) for rid, d in
+                        ((rid, next((x for x in st["drafts"] if str(x["id"]) == rid), None)) for rid in st["ready"]) if d},
         "lock": {"ok": (lr / "AGENTS.md").is_file(), "path": str(lr), "models": list_models(), "refs": refs,
                  "refStyles": {r: ref_style(r, st) for r in refs}, "minPerImage": MIN_PER_IMAGE},
         "styles": all_styles(st), "styleGroups": st["styleGroups"], "covers": COVERS,
@@ -1633,7 +1740,10 @@ def r_lock_job(kind, p):
         raise ValueError("找不到这个单品")
     if not (lock_root() / "AGENTS.md").is_file():
         raise ValueError("找不到锁图工作台，请在设置里填 xhs-lock-studio 文件夹的位置")
-    if any(j.get("params", {}).get("item") == it["id"] and j["status"] in ("queued", "running") for j in st["jobs"]):
+    # 同一款可以给不同的号各排一个出图任务（矩阵一款多号），同一个号同一款只排一个
+    acc_of = lambda j: str((j.get("params") or {}).get("account") or "")
+    if any(j.get("params", {}).get("item") == it["id"] and j["status"] in ("queued", "running")
+           and (kind == "spec" or j["kind"] != "lock" or acc_of(j) == str(p.get("account") or "")) for j in st["jobs"]):
         raise ValueError("这件衣服已经有任务在做了")
     d = item_dir(it)
     if not find_slot(d, "front"):
@@ -1687,13 +1797,41 @@ def r_lock_job(kind, p):
             acc = p.get("account") or (auto or {}).get("account")
             if acc:
                 lp.setdefault("byAcc", {})[str(acc)] = {"style": p["style"], "face": p["face"], "model": p.get("model") or "", "refs": refs}
+                s.setdefault("jobAcc", {})[name] = str(acc)   # 这批图是给哪个号出的
         mutate(remember)
         job = {"id": uuid.uuid4().hex[:10], "kind": "lock", "cwd": str(lock_root()),
-               "params": {"item": it["id"], "face": p["face"], "model": p.get("model") or "", "refs": refs, "jobDir": str(jd), "autoWrite": auto, "style": p["style"]},
+               "params": {"item": it["id"], "account": str(p.get("account") or (auto or {}).get("account") or ""), "face": p["face"], "model": p.get("model") or "", "refs": refs, "jobDir": str(jd), "autoWrite": auto, "style": p["style"]},
                "title": "出图 · %s · %s%d 张" % (it["name"], (styles[p["style"]] + " ") if p["style"] in styles else "", len(refs)), "prompt": lock_prompt(p, name),
                "status": "queued", "createdAt": now_ms(), "estimateMin": MIN_PER_IMAGE[p["face"]] * len(refs)}
     mutate(lambda s: s["jobs"].append(job))
     return {"ok": True, "job": job}
+
+
+def r_lock_multi(p):
+    """一款多号：勾选的每个号按自己记住的拍法各出一组图，出完各自写稿。没在这个号出过图的跳过。"""
+    need(p, "item")
+    accs = [str(a) for a in (p.get("accounts") or [])]
+    if not accs:
+        raise ValueError("至少勾一个号")
+    st = load_state()
+    picks = (st.get("lastPick") or {}).get("byAcc") or {}
+    known = set(list_refs())
+    queued, skipped = [], []
+    for aid in accs:
+        require_account(aid)
+        pk = picks.get(aid) or {}
+        refs = [r for r in pk.get("refs") or [] if r in known]
+        if not refs:
+            skipped.append({"account": aid, "why": "这个号还没选过参考图，先切到这个号出一次"})
+            continue
+        try:
+            job = r_lock_job("lock", {"item": p["item"], "account": aid, "face": pk.get("face"), "model": pk.get("model") or "",
+                                      "refs": refs, "style": pk.get("style"), "note": str(p.get("note") or "")[:300],
+                                      "autoWrite": {"account": aid, "count": 1} if p.get("autoWrite", True) else None})["job"]
+            queued.append({"account": aid, "job": job["id"], "estimateMin": job.get("estimateMin", 0)})
+        except ValueError as e:
+            skipped.append({"account": aid, "why": str(e)})
+    return {"ok": True, "queued": queued, "skipped": skipped}
 
 
 def r_write_from_images(p):
@@ -1752,6 +1890,10 @@ def r_review(body):
         if r["status"] == "驳回":
             raise ValueError("稿件已驳回，请先修改")
         validate_draft(r)
+        used = draft_clash(load_state(), r)["images"]
+        if used:
+            raise ValueError("第 %s 张图已经在「%s」用过了，同一张图发两个号容易被判搬运限流；把这张去掉再定稿"
+                             % ("、".join(str(r["images"].index(u["img"]) + 1) for u in used), used[0]["account"]))
         mutate(lambda s: s["ready"].__setitem__(rid, {"at": now_ms()}))
     elif act == "unready":
         mutate(lambda s: s["ready"].pop(rid, None))
@@ -1812,7 +1954,7 @@ def _r_publish(body):
         raise ValueError("请先审过这篇稿")
     at = body.get("at")
     if at == "auto":
-        at = next_slot(load_state(), body["account"])
+        at = next_slot(load_state(), body["account"], item=r.get("item"))
         if not at:
             raise ValueError("30 天内没有空的发布时段，请自选时间")
     if at is not None and (isinstance(at, bool) or not re.fullmatch(r"[0-9]+", str(at))):
@@ -1826,6 +1968,19 @@ def _r_publish(body):
                  and s["status"] in ("pending", "running", "done") and abs(s.get("at", 0) - when) < 2 * 3600000), None)
     if near and not body.get("force"):
         raise ValueError("这个账号 %s 已经排了「%s」，前后 2 小时内不要再发；换个时间，或确认后强制排期" % (fmt_ms(near["at"]), near.get("title", "")))
+    if at and not body.get("force"):
+        st = load_state()
+        live = [s for s in st["schedule"] if s["account"] != str(body["account"]) and s["status"] in ("pending", "running", "done")]
+        names = {str(a["id"]): a["name"] for a in st["accounts"]}
+        same = next((s for s in live if r.get("item") and schedule_item(st, s) == r["item"]
+                     and abs((datetime.date.fromtimestamp(s["at"] / 1000) - datetime.date.fromtimestamp(when / 1000)).days) < ITEM_GAP_DAYS), None)
+        if same:
+            raise ValueError("同一款在「%s」%s 已经排了，不同号发同一款至少隔 %d 天；点「自动」会帮你错开"
+                             % (names.get(same["account"], "别的号"), fmt_ms(same["at"]), ITEM_GAP_DAYS))
+        close = next((s for s in live if abs(s["at"] - when) < CROSS_GAP_MIN * 60000), None)
+        if close:
+            raise ValueError("「%s」%s 要发，和它错开 %d 分钟以上，免得几个号同时发被当成批量操作"
+                             % (names.get(close["account"], "别的号"), fmt_ms(close["at"]), CROSS_GAP_MIN))
     with LOCK:
         quote = QUOTES.get(body.get("quote"))
         if not quote or quote["expiresAt"] < now_ms() or quote["account"] != str(body["account"]) or quote["review"] != str(body["id"]) or quote["fingerprint"] != draft_fingerprint(r):
@@ -1964,6 +2119,9 @@ def r_account(body):
     if not name:
         raise ValueError("写个账号名")
     aid = str(body.get("id") or "")
+    persona = str(body.get("persona") or "")
+    if persona and persona not in PERSONAS:
+        raise ValueError("没有这个人设")
 
     def f(s):
         for a in s["accounts"]:
@@ -1974,9 +2132,48 @@ def r_account(body):
             raise ValueError("找不到这个账号")
         nid = str(max([int(a["id"]) for a in s["accounts"] if str(a["id"]).isdigit()] + [0]) + 1)
         a = {"id": nid, "name": name, "profile": "acc" + nid}
+        if body.get("fresh"):
+            # 新注册的号：从今天起按起号节奏排（养号 → 冷启动 → 定型 → 稳定）
+            t = datetime.date.today()
+            a["startedAt"] = int(datetime.datetime(t.year, t.month, t.day).timestamp() * 1000)
+        if persona:
+            apply_persona(s, a, persona)
         s["accounts"].append(a)
         return a
     return {"ok": True, "account": mutate(f)}
+
+
+def apply_persona(s, a, key):
+    """套人设：文案设定、封面样式、出图拍法（风格 + 脸怎么处理）一次填好。"""
+    p = PERSONAS[key]
+    a["persona"] = key
+    a.update(COPY_PRESETS[p["copy"]])
+    a["cover"] = p["cover"]
+    lp = s.setdefault("lastPick", {}).setdefault("byAcc", {})
+    lp[str(a["id"])] = {"style": p["style"], "face": p["face"], "model": "", "refs": []}
+
+
+def r_account_persona(body):
+    """老号也能换人设（会覆盖文案设定、封面和拍法），或者设 / 取消起号日期。"""
+    need(body, "id")
+    require_account(body["id"])
+
+    def f(s):
+        a = next(x for x in s["accounts"] if str(x["id"]) == str(body["id"]))
+        if "persona" in body:
+            if body["persona"] not in PERSONAS:
+                raise ValueError("没有这个人设")
+            apply_persona(s, a, body["persona"])
+        if "fresh" in body:
+            if body["fresh"]:
+                t = datetime.date.today()
+                a["startedAt"] = int(datetime.datetime(t.year, t.month, t.day).timestamp() * 1000)
+            else:
+                a.pop("startedAt", None)
+        if "weekly" in body:
+            a["weekly"] = bounded_int(body["weekly"], 4, 14)
+    mutate(f)
+    return {"ok": True}
 
 
 def r_account_copy(body):
@@ -2135,6 +2332,7 @@ ROUTES = {
     "/api/reschedule": r_reschedule, "/api/account/copy": r_account_copy, "/api/topic": r_topic,
     "/api/prompt/preview": r_prompt_preview, "/api/ref/style": r_ref_style, "/api/ref/delete": r_ref_delete,
     "/api/style/group": r_style_group, "/api/item/real": r_item_real, "/api/account/cover": r_account_cover,
+    "/api/account/persona": r_account_persona, "/api/lock/multi": r_lock_multi,
 }
 
 

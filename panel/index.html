@@ -243,6 +243,11 @@ button.stat:hover{border-color:#d5ccc8;background:var(--card)}
 .stat.bad{border-color:var(--accent-line);background:var(--accent-soft)}
 .stat.bad b{color:var(--accent)}
 table.hist{width:100%;border-collapse:collapse;font-size:13px}
+table.mx{width:100%;border-collapse:separate;border-spacing:4px;font-size:12px;table-layout:fixed;min-width:760px}
+table.mx th{font-weight:500;color:var(--muted);text-align:left;padding:2px 4px}table.mx th.today{color:var(--accent)}
+table.mx td{vertical-align:top;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:4px;height:56px}
+table.mx td.acc{background:none;border:0;padding:4px 6px 4px 0}
+table.mx .cal{font-size:11.5px;padding:4px 6px;margin-bottom:3px}.cal.clash{outline:2px solid var(--bad);outline-offset:-1px}
 table.hist th{text-align:left;color:var(--muted);font-weight:500;font-size:12px;padding:10px 8px;border-bottom:1px solid var(--line)}
 table.hist td{padding:12px 8px;border-bottom:1px solid var(--line);vertical-align:top}
 table.hist tr:last-child td{border-bottom:0}
@@ -418,7 +423,9 @@ function upcomingNodes() {
   return out.sort((a, b) => a.at - b.at);
 }
 const weekStart = off => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - (d.getDay() + 6) % 7 + off * 7); return d.getTime(); };
-const lastImages = it => ((it.lockJobs || []).find(j => j.images.length) || {images: []}).images;
+// 一款多号：每批图记着是给哪个号出的，只看这个号的（老数据没标号的大家都能用）
+const myJobs = it => (it.lockJobs || []).filter(j => !j.account || String(j.account) === String(UI.acc));
+const lastImages = it => (myJobs(it).find(j => j.images.length) || {images: []}).images;
 const busyHint = text => `<div class="hint"><span class="dot" style="display:inline-block"></span> ${text}</div>`;
 
 // ---------- 结构：四大块，每块一排子页；每页页头一句话告诉人这一页干什么
@@ -432,7 +439,7 @@ const DESC = {
   'copy.write': '从「选题库」点「写这条」或从「出好的图」点「写文案」进来。写好进「审稿」，不会自动发。',
   'copy.set': '账号定位、口吻和封面样式设一次，之后每篇都按这个写。',
   'pub.queue': '调封面和图序，选时间。到点工作台打开浏览器直接发。',
-  'pub.cal': '这一周排了什么、发了什么、哪篇没发出去。',
+  'pub.cal': '这一周排了什么、发了什么、哪篇没发出去。切到「全部号」看整个矩阵哪天谁发什么、有没有撞款。',
   'pub.login': '每个号在工作台扫一次码，之后一直有效。',
   'hist.all': '发过什么、哪里出错、AI 做了什么，都按时间排在这里。',
   'hist.pub': '已经发出去的笔记。', 'hist.fail': '没发出去的和被驳回的，处理完就从这里消失。', 'hist.ai': '交给 AI 的每件事：出选题、写档案、出图、写文案、改稿。',
@@ -561,7 +568,7 @@ function initPick(it, style) {
     if (PICK.refs.length) return;
   }
   PICK.style = [style, mine && mine.style, lp.style, 'mirror'].find(k => k && ok(k));
-  PICK.face = ((lp.faceByStyle || {})[PICK.style]) || (PICK.style === 'mirror' ? 'hide' : lp.face || 'model');
+  PICK.face = (mine && mine.style === PICK.style && mine.face) || ((lp.faceByStyle || {})[PICK.style]) || (PICK.style === 'mirror' ? 'hide' : lp.face || 'model');
   if (lp.model && models.some(m => m.name === lp.model)) PICK.model = lp.model;
   if (PICK.style === 'own') {
     const last = ((lp.refsByCat || {})[it.category || '其他'] || []).filter(r => refs.includes(r));
@@ -570,8 +577,8 @@ function initPick(it, style) {
 }
 function shootPage(it) {
   if (!(it.photos.front && it.hasSpec && it.specOk)) return `<div class="empty">先在「① 照片和资料」里放好正面照、让 AI 写档案并核对检查要点。<br><button type="button" class="link" data-do="goSub" data-tab="img" data-sub="info">去 ①</button></div>`;
-  const job = activeJobs().find(j => j.kind === 'lock' && j.params && j.params.item === it.id);
-  const last = (it.lockJobs || [])[0];
+  const job = activeJobs().find(j => j.kind === 'lock' && j.params && j.params.item === it.id && (!j.params.account || String(j.params.account) === String(UI.acc)));
+  const last = myJobs(it)[0];
   if (job) {
     const mins = Math.max(0, Math.round(((job.startedAt || job.createdAt) + (job.estimateMin || 20) * 60e3 - Date.now()) / 60e3));
     return `${busyHint(`正在出图：${esc(job.title)}。${job.status === 'queued' ? (activeJobs().some(j => j.status === 'running') ? '前面还有任务在排队。' : '马上开始。') : `预计还要 ${mins} 分钟左右。`}每张出完 AI 会放大检查脸和衣服，不合格自动重做。`)}
@@ -604,6 +611,7 @@ function shootPage(it) {
     <label class="f">补充要求（可不填）<input id="lockNote" placeholder="例：外套扣子全扣上；下装和鞋保留参考图原来的"></label>
     <div class="sec"><label class="row small" style="flex-wrap:nowrap;align-items:flex-start;gap:8px"><input type="checkbox" id="autoWrite" ${PICK.autoWrite ? 'checked' : ''} style="width:auto"> 出完自动挑 A 级图写文案（有这款的选题就用上），写好放进「文案 › 审稿」</label>
       ${PICK.autoWrite ? `<label class="row small" style="flex-wrap:nowrap;align-items:flex-start;gap:8px;margin-left:24px"><input type="checkbox" id="autoSplit" ${PICK.split === 2 ? 'checked' : ''} style="width:auto"> 图够 4 张就拆成 2 篇（身材尺码一篇、场景搭配一篇）</label>` : ''}</div>
+    ${D.accounts.length > 1 ? `<div class="row between small"><span class="muted">同一款要发好几个号？每个号按自己记住的拍法各出一组，图不重复，出完各写各的稿。</span><button type="button" class="ghost" data-do="multiShoot" data-id="${esc(it.id)}">给几个号各出一组</button></div>` : ''}
     <div class="actions"><span class="small muted">${PICK.refs.length ? `${PICK.refs.length} 张 · 约 ${est} 分钟 · 额度用完会停在当前张，恢复后再点只补没出的` : '先选参考图'}</span>
       <button type="button" class="primary big" data-do="lock" data-id="${esc(it.id)}" ${PICK.refs.length && (PICK.face !== 'model' || PICK.model) ? '' : 'disabled'}>开始出图</button></div>`;
 }
@@ -615,7 +623,7 @@ function modelCard(m, pick) {
   return pick ? `<button type="button" class="model" data-do="pickModel" data-name="${esc(m.name)}" aria-pressed="${PICK.model === m.name}">${inner}</button>` : `<div class="model panel">${inner}</div>`;
 }
 function resultPage(it) {
-  const last = (it.lockJobs || []).find(j => j.images.length);
+  const last = myJobs(it).find(j => j.images.length);
   const addReal = `<button type="button" data-do="addReal" data-id="${esc(it.id)}">＋ 加实拍图</button>`;
   if (!last && !(it.realPhotos || []).length) return `<div class="empty">还没有出好的图。<button type="button" class="link" data-do="goSub" data-tab="img" data-sub="shoot">去 ② 出图</button>，或者直接用自己拍的：<br><br>${addReal}</div>`;
   const g = it.grades || {};
@@ -688,7 +696,11 @@ function reviewPage(R) {
   const cands = Array.from(new Set([r.title].concat(r.titles || []))).filter(Boolean);
   const imgs = r.images || [];
   const checks = c.errs.map(e => `<span class="pill bad">${esc(e)}</span>`).join(' ') + ' ' + c.warns.map(e => `<span class="pill warn">${esc(e)}</span>`).join(' ');
-  return `${st === 'rejected' ? '<div class="notice bad"><b>这篇已驳回。</b>改好点「保存」就回到待审。</div>' : ''}
+  const cl = r.clash || {}, used = (cl.images || []).filter(u => imgs.includes(u.img));
+  const clash = (used.length ? `<div class="notice bad"><b>第 ${used.map(u => imgs.indexOf(u.img) + 1).join('、')} 张图已经在「${esc(used[0].account)}」用过了。</b>同一张图发两个号容易被判搬运限流，去掉才能定稿。
+      ${used.length < imgs.length ? `<button type="button" class="ghost" data-do="dropClash" data-id="${r.id}">去掉这${used.length > 1 ? ' ' + used.length : ''}张</button>` : '这篇的图全被用过了，回「出好的图」给这个号重新挑。'}</div>` : '')
+    + (cl.similar ? `<div class="notice">${cl.similar.what}和「${esc(cl.similar.account)}」那篇「${esc(cl.similar.title)}」太像了。同一款在不同号要换个角度写，点下面「换个角度」让 AI 改。</div>` : '');
+  return `${st === 'rejected' ? '<div class="notice bad"><b>这篇已驳回。</b>改好点「保存」就回到待审。</div>' : ''}${clash}
     <div class="row between"><div class="row">${imgs.map(p => `<a href="${img(p)}" target="_blank" rel="noopener"><img src="${img(p)}" alt="" style="width:36px;height:48px;object-fit:cover;border-radius:6px;background:var(--soft);display:block"></a>`).join('') || '<span class="pill bad">没有图</span>'}
       <span class="small muted">配的 ${imgs.length} 张图（看着写的，封面和顺序在「发布」里调）${imgs.some(p => (g[p] || {}).grade === 'B') ? ' · 有 B 级图' : ''}</span></div>
       ${c.ok && !c.warns.length ? `<span class="pill good">无违规词 · ${(r.tags || []).length} 个话题 · ${len(r.body)} 字 · 写了尺码</span>` : `<span>${checks}</span>`}</div>
@@ -741,7 +753,7 @@ function writePage() {
     <label class="f">对标笔记（可不填）<textarea id="writeRef" rows="3" maxlength="2000" placeholder="贴一篇同行的爆款笔记（标题 + 正文）。AI 只学它的结构和节奏，不抄句子、不用它的产品信息。"></textarea></label>
     <div class="actions"><span class="small muted">写好后进「审稿」，不会自动发</span><button type="button" class="primary big" data-do="write" data-id="${esc(it.id)}" ${W.imgs.length && !job ? '' : 'disabled'}>交给 AI 写</button></div>`;
 }
-const QUICK_RW = [['开头更抓人', '开头三行改得更抓人：直接点出痛点或场景，不铺垫'], ['更口语', '整篇改得更口语，像真人说话，短句、少形容词'],
+const QUICK_RW = [['换个角度', '同一款在别的号也发了，这篇换一个切入角度：标题和开头都重写，按这个号的定位和口吻来，别和常见写法撞'], ['开头更抓人', '开头三行改得更抓人：直接点出痛点或场景，不铺垫'], ['更口语', '整篇改得更口语，像真人说话，短句、少形容词'],
   ['缩短一半', '正文缩短到现在的一半左右，保留尺码和最打动人的细节'], ['加尺码段', '加一段尺码：模特身高体重穿的码 + 一句选码建议'],
   ['换标题方向', '重写 3 个标题，换成和现在不同的方向']];
 function presetRow(a) {
@@ -788,16 +800,18 @@ function pagePub(sub) {
   const r = R.find(x => String(x.id) === UI.pubSel);
   return `<div class="two">${left}<div class="panel"><div class="stack">${r ? queuePage(r) : '<div class="empty">没有等着发的稿。在「文案 › 审稿」里点「文案定稿，去发布」，就会出现在这里。</div>'}</div></div></div>`;
 }
-function whenOpts() {
-  const ns = (D.nextSlot || {})[String(UI.acc)];
+function whenOpts(r) {
+  // 自动时间按这一篇算：同一款和别的号隔开 2 天，和别的号错开 30 分钟，起号阶段这周排满就往后
+  const ns = r && (D.nextSlotFor || {})[String(r.id)] !== undefined ? D.nextSlotFor[String(r.id)] : (D.nextSlot || {})[String(UI.acc)];
   return (ns ? [{k: 'auto', l: '自动：' + fmtDT(ns), at: 'auto', show: ns}] : []).concat([{k: 'now', l: '立即', at: null}, {k: 'own', l: '自选时间', at: 0}]);
 }
 function queuePage(r) {
   const st = draftState(r), imgs = r.images || [], g = allGrades();
   const ri = D.items.find(i => i.id === r.item);
   const sched = D.schedule.find(s => String(s.review) === String(r.id) && (s.status === 'pending' || s.status === 'running'));
+  const a = acc() || {}, rh = a.rhythm || {};
   if (UI.markFor !== r.id) { UI.markFor = r.id; UI.markAi = D.settings.mark_ai !== false && !allReal(imgs); }
-  const T = whenOpts();
+  const T = whenOpts(r);
   if (!UI.when || !T.some(t => t.k === UI.when)) UI.when = T[0].k;
   const imgRow = `<div class="imgs">${imgs.map((p, i) => `<div class="img"><img class="th" src="${img(p)}" alt="第 ${i + 1} 张">${i === 0 ? '<span class="cv">封面</span>' : ''}<span class="gr">${gradePill(g[p])}</span>
       ${sched ? '' : `<div class="ops">${i ? `<button type="button" data-do="img" data-op="cover" data-i="${i}" data-id="${r.id}">设为封面</button><button type="button" data-do="img" data-op="left" data-i="${i}" data-id="${r.id}" aria-label="往前挪">←</button>` : ''}${i < imgs.length - 1 ? `<button type="button" data-do="img" data-op="right" data-i="${i}" data-id="${r.id}" aria-label="往后挪">→</button>` : ''}${imgs.length > 1 ? `<button type="button" class="danger" data-do="img" data-op="drop" data-i="${i}" data-id="${r.id}" aria-label="不用这张">×</button>` : ''}</div>`}</div>`).join('')}</div>`;
@@ -808,13 +822,15 @@ function queuePage(r) {
     <div class="actions"><span></span><button type="button" class="danger" data-do="unsched" data-id="${esc(sched.id)}">取消排期</button></div>`;
   return head + `<div class="sec"><h3>发布时间</h3><div class="when">${T.map(t => `<button type="button" class="chip" data-do="when" data-k="${t.k}" aria-pressed="${UI.when === t.k}">${esc(t.l)}</button>`).join('')}
       <input type="datetime-local" id="whenAt" style="width:auto" ${UI.when === 'own' ? '' : 'hidden'} value="${esc(UI.whenAt || '')}"></div></div>
-    <div class="hint" style="line-height:1.8">到点由工作台打开浏览器直接发，不用小红书的定时发布。<b>那个时间 Mac 要开着、别合盖，工作台要开着</b>；有待发的稿时工作台会自动不让 Mac 睡眠。错过了不补发，会进「历史 › 没发出」，点「重新排期」就行。<br>${ri && ri.goods ? `挂商品：<b>${esc(ri.goods)}</b> · ` : ''}同号一天一篇、隔 2 小时 · 不扣点</div>
+    <div class="hint" style="line-height:1.8">到点由工作台打开浏览器直接发，不用小红书的定时发布。<b>那个时间 Mac 要开着、别合盖，工作台要开着</b>；有待发的稿时工作台会自动不让 Mac 睡眠。错过了不补发，会进「历史 › 没发出」，点「重新排期」就行。<br>${ri && ri.goods ? `挂商品：<b>${esc(ri.goods)}</b> · ` : ''}同号一天一篇、隔 2 小时 · 同一款和别的号隔 2 天 · 不扣点</div>
+    ${rh.ramping ? `<div class="hint warn">「${esc(a.name)}」起号第 ${rh.week} 周（${rh.stage}），这周最多排 ${rh.target} 篇，自动时间已经按这个排。${ri && ri.goods && rh.week <= 4 ? '<b>起号前 4 周建议先别挂商品</b>，到「产品图 › 照片和资料」把挂商品清空再发。' : ''}</div>` : ''}
+    ${a.realFirst && !allReal(imgs) ? '<div class="hint warn">这个号是测评人设，<b>测评图建议用自己拍的实拍图</b>：用 AI 图说「我试穿了」属于虚假测评，被平台查到会限流甚至封号。</div>' : ''}
     <label class="row small" style="flex-wrap:nowrap;align-items:flex-start;gap:8px"><input type="checkbox" id="markAi" ${UI.markAi ? 'checked' : ''} style="width:auto"> 标注「笔记含 AI 合成内容」<span class="muted">（可关；小红书要求 AI 生成的图要声明，不标有被限流的风险${allReal(imgs) ? '。这篇全是实拍图，默认不标' : ''}）</span></label>
     <div class="actions"><button type="button" class="link" data-do="package" data-id="${r.id}">导出发布包，自己在 App 里发</button>
       <div class="row"><button type="button" data-do="tryFill" data-id="${r.id}">只填不发试一次</button><button type="button" class="primary big" data-do="approve" data-id="${r.id}">确认排期</button></div></div>`;
 }
 async function approveFlow(r) {
-  const w = whenOpts().find(t => t.k === UI.when);
+  const w = whenOpts(r).find(t => t.k === UI.when);
   let at = w.at;
   if (w.k === 'own') { at = new Date($('#whenAt').value).getTime(); if (!(at > Date.now())) { toast('选一个以后的时间'); return; } }
   toast('正在检查小红书登录…');
@@ -836,7 +852,30 @@ async function approveFlow(r) {
     return true;
   });
 }
+// 矩阵日历：一行一个号、一列一天；同一款两个号隔不到 2 天标红；右边是这周排了几篇 / 最多几篇
+function calMatrix() {
+  const ws = weekStart(UI.week), today = new Date(); today.setHours(0, 0, 0, 0);
+  const wk = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+  const S = D.schedule.filter(s => s.status !== 'cancelled');
+  const dayN = t => { const d = new Date(t); return Math.round(new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() / 864e5); };
+  const itemOf = s => (D.reviews.find(x => String(x.id) === String(s.review)) || {}).item || '';
+  const clash = s => { const it = itemOf(s); return it && S.some(o => o !== s && String(o.account) !== String(s.account) && itemOf(o) === it && Math.abs(dayN(o.at) - dayN(s.at)) < 2); };
+  const rows = D.accounts.map(a => {
+    const mine = S.filter(s => String(s.account) === String(a.id) && s.at >= ws && s.at < ws + 7 * 864e5);
+    const rh = a.rhythm || {}, n = mine.filter(s => s.status !== 'failed' && s.status !== 'missed').length;
+    const cells = wk.map((w, i) => { const d0 = ws + i * 864e5; return `<td>${mine.filter(s => s.at >= d0 && s.at < d0 + 864e5).sort((x, y) => x.at - y.at).map(s => { const t = new Date(s.at); return `<button type="button" class="cal ${s.status} ${clash(s) ? 'clash' : ''}" data-do="slot" data-id="${esc(s.id)}" title="${esc(s.title)}${clash(s) ? '（同一款和别的号隔不到 2 天）' : ''}"><span class="t">${pad(t.getHours())}:${pad(t.getMinutes())}</span> ${esc(itemName(itemOf(s)) || s.title)}</button>`; }).join('')}</td>`; }).join('');
+    return `<tr><td class="acc"><b>${esc(a.name)}</b><br><span class="small muted">${rh.ramping ? `起号第 ${rh.week} 周 · ${esc(rh.stage)}` : a.persona && D.personas[a.persona] ? esc(D.personas[a.persona].name) : ''}</span></td>${cells}
+      <td class="acc num ${rh.target && n < rh.target ? '' : 'muted'}">${n}${rh.target ? ' / ' + rh.target : ''} 篇</td></tr>`;
+  }).join('');
+  const nClash = S.filter(s => s.at >= ws && s.at < ws + 7 * 864e5 && clash(s)).length;
+  return `<div style="overflow-x:auto"><table class="mx"><colgroup><col style="width:120px">${wk.map(() => '<col>').join('')}<col style="width:78px"></colgroup>
+    <tr><th></th>${wk.map((w, i) => { const d0 = ws + i * 864e5; return `<th class="${d0 === today.getTime() ? 'today' : ''}">${w} ${new Date(d0).getDate()}</th>`; }).join('')}<th>本周</th></tr>${rows}</table></div>
+    <div class="hint" style="margin-top:14px">${nClash ? `<b>有 ${nClash} 篇标红：</b>同一款在两个号隔不到 2 天，点开取消一篇再用「自动」时间重排。` : '这周没有撞款。'}自动时间会让不同号错开 30 分钟以上，同一款在不同号隔 2 天；起号的号按阶段限制每周篇数。</div>`;
+}
 function calPage() {
+  const toggle = D.accounts.length > 1 ? `<div class="row"><button type="button" class="chip" data-do="calMode" data-k="one" aria-pressed="${!UI.calAll}">只看这个号</button><button type="button" class="chip" data-do="calMode" data-k="all" aria-pressed="${!!UI.calAll}">全部号（矩阵）</button></div>` : '';
+  const nav = `<div class="row"><button class="ghost" data-do="wk" data-d="-1" type="button">上一周</button><button class="ghost" data-do="wk" data-d="0" type="button">本周</button><button class="ghost" data-do="wk" data-d="1" type="button">下一周</button></div>`;
+  if (UI.calAll && D.accounts.length > 1) { const ws = weekStart(UI.week); return `<div class="row between" style="margin-bottom:12px"><div class="row"><h2>${UI.week === 0 ? '本周' : `${fmtD(ws)} – ${fmtD(ws + 6 * 864e5)}`}</h2>${toggle}</div>${nav}</div>${calMatrix()}`; }
   const S = D.schedule.filter(s => String(s.account) === String(UI.acc));
   const ws = weekStart(UI.week);
   const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -850,19 +889,24 @@ function calPage() {
   }).join('');
   const n = upcomingNodes().find(x => x.postBy > Date.now() - 7 * 864e5);
   const pend = S.filter(s => s.status === 'pending').length;
-  return `<div class="row between" style="margin-bottom:12px"><h2>${UI.week === 0 ? '本周' : `${fmtD(ws)} – ${fmtD(ws + 6 * 864e5)}`}</h2>
-      <div class="row"><button class="ghost" data-do="wk" data-d="-1" type="button">上一周</button><button class="ghost" data-do="wk" data-d="0" type="button">本周</button><button class="ghost" data-do="wk" data-d="1" type="button">下一周</button></div></div>
+  return `<div class="row between" style="margin-bottom:12px"><div class="row"><h2>${UI.week === 0 ? '本周' : `${fmtD(ws)} – ${fmtD(ws + 6 * 864e5)}`}</h2>${toggle}</div>${nav}</div>
     <div class="week">${days}</div>
     <div class="hint" style="margin-top:14px">${[UI.week === 0 && empty ? `本周还空 ${empty} 天，建议每天 1 篇，女装流量高峰是中午 12 点前后和晚上 7–10 点。` : '',
       n ? `${fmtD(n.at)}「${esc(n.name)}」还有 ${n.days} 天，相关内容建议 ${fmtD(n.postBy)} 前开始发。` : ''].filter(Boolean).join(' ') || '这一周都排上了。'}</div>
     ${pend ? `<div class="notice" style="margin-top:10px">有 ${pend} 篇待发：到点工作台开浏览器直接发，Mac 要开着、别合盖。${D.awake ? '现在已经不让 Mac 自己睡眠了。' : ''}</div>` : ''}`;
 }
+const personaOpts = (cur, blank) => `<option value="">${blank}</option>` + Object.entries(D.personas || {}).map(([k, p]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
 function loginPage() {
-  return `<div class="panel pad stack"><div class="small muted">过期了发布会失败，回这里再扫一次。</div>
+  const rhy = a => { const r = a.rhythm || {}; return r.ramping ? `起号第 ${r.week} 周 · ${esc(r.stage)} · 这周最多 ${r.target} 篇` : r.target ? `稳定 · 每周 ${r.target} 篇` : '稳定'; };
+  return `<div class="panel pad stack"><div class="small muted">过期了发布会失败，回这里再扫一次。人设决定这个号的拍法、封面和文案口吻；新号勾上「按起号节奏」，前几周会自动少排几篇。</div>
     <div class="list">${D.accounts.map(a => `<div class="item"><div class="main row" style="flex-wrap:nowrap"><input data-accname="${esc(a.id)}" value="${esc(a.name)}" aria-label="账号名" style="max-width:220px">
         ${a.online ? '<span class="pill good">已登录</span>' : '<span class="pill bad">未登录</span>'}<span class="small muted">${a.checkedAt ? '上次检查 ' + fmtDT(a.checkedAt) : '还没检查过'}</span></div>
+      <div class="row small"><select data-persona="${esc(a.id)}" aria-label="人设" style="width:auto">${personaOpts(a.persona, '人设：没套')}</select>
+        <label class="row" style="gap:6px;flex-wrap:nowrap"><input type="checkbox" data-fresh="${esc(a.id)}" ${a.startedAt ? 'checked' : ''} style="width:auto"> 按起号节奏</label><span class="muted">${rhy(a)}</span></div>
       <div class="row"><button type="button" class="ghost" data-do="login" data-id="${esc(a.id)}">扫码登录</button><button type="button" class="ghost" data-do="checkLogin" data-id="${esc(a.id)}">我扫好了</button><button type="button" class="ghost" data-do="renameAcc" data-id="${esc(a.id)}">改名</button></div></div>`).join('')}</div>
-    <div class="row" style="flex-wrap:nowrap"><input id="newAcc" placeholder="再加一个号：写个名字"><button type="button" data-do="addAcc">加一个号</button></div></div>`;
+    <div class="row" style="flex-wrap:nowrap"><input id="newAcc" placeholder="再加一个号：写个名字"><select id="newPersona" aria-label="人设" style="width:auto">${personaOpts('', '选人设（可不选）')}</select>
+      <label class="row small" style="gap:6px;flex-wrap:nowrap"><input type="checkbox" id="newFresh" checked style="width:auto"> 新注册的号</label><button type="button" data-do="addAcc">加一个号</button></div>
+    <div class="small muted">${Object.values(D.personas || {}).map(p => `<b>${esc(p.name)}</b>：${esc(p.desc)}`).join('　')}</div></div>`;
 }
 
 // ================================================================ 第 4 块 历史记录
@@ -1008,6 +1052,25 @@ function dlgNew() {
     fi.onchange = () => { put(fi.dataset.k, fi.files[0]); fi.value = ''; };
   });
 }
+function dlgMulti(it) {
+  const picks = (D.lastPick || {}).byAcc || {};
+  const line = a => {
+    const pk = picks[String(a.id)] || {}, refs = (pk.refs || []).filter(r => D.lock.refs.includes(r));
+    const busy = activeJobs().some(j => j.kind === 'lock' && j.params && j.params.item === it.id && String(j.params.account) === String(a.id));
+    const how = refs.length ? `${esc(D.styles[pk.style] || '自己挑')} · ${FACE_NAME[pk.face] || ''}${pk.face === 'model' && pk.model ? ' ' + esc(pk.model) : ''} · ${refs.length} 张` : '还没在这个号选过参考图，先切到这个号出一次';
+    return `<label class="row small" style="flex-wrap:nowrap;align-items:flex-start;gap:8px"><input type="checkbox" name="ma" value="${esc(a.id)}" ${refs.length && !busy ? 'checked' : 'disabled'} style="width:auto">
+      <span><b>${esc(a.name)}</b>${a.persona && D.personas[a.persona] ? ` <span class="pill">${esc(D.personas[a.persona].name)}</span>` : ''}<br><span class="muted">${busy ? '这个号已经在出这款了' : how}</span></span></label>`;
+  };
+  openDlg(`<h2>「${esc(it.name)}」给几个号各出一组</h2><p class="small muted" style="margin:0">每个号按自己上次的拍法出图，出完自动挑 A 级图用这个号的口吻写一篇，放进各自的「审稿」。任务一个接一个做。</p>
+    <div class="stack" style="gap:10px">${D.accounts.map(line).join('')}</div>` + btns('开始出图'), async f => {
+    const accounts = Array.from(f.querySelectorAll('input[name=ma]:checked')).map(x => x.value);
+    if (!accounts.length) { toast('至少勾一个号'); return false; }
+    const j = await api('/api/lock/multi', {item: it.id, accounts});
+    if (!j) return false;
+    const nm = id => (D.accounts.find(a => String(a.id) === String(id)) || {}).name || id;
+    toast(`已给 ${j.queued.map(q => nm(q.account)).join('、') || '0 个号'} 排上出图${j.skipped.length ? `；跳过 ${j.skipped.map(x => nm(x.account) + '（' + x.why + '）').join('、')}` : ''}`);
+  });
+}
 function dlgGroup(g = {}) {
   openDlg(`<h2>${g.id ? '改这组风格' : '新建一组风格'}</h2><p class="small muted" style="margin:0">建好后把想模仿的图上传到这组；出图选这组时，AI 会照着这些图和下面这句话拍。</p>
     <label class="f">名字（≤12 字）<input id="g-name" maxlength="12" required value="${esc(g.name || '')}" placeholder="例如：书桌房间"></label>
@@ -1083,6 +1146,13 @@ document.addEventListener('change', e => {
     else api('/api/account/cover', {id: UI.acc, cover: t.value}).then(j => j && toast('封面样式已改'));
   }
   if (t.id === 'autoWrite') { PICK.autoWrite = t.checked; render(); }
+  if (t.dataset.persona && t.value) {
+    const id = t.dataset.persona, p = D.personas[t.value], a = D.accounts.find(x => String(x.id) === id) || {};
+    dlgConfirm(`「${a.name}」套用「${p.name}」人设`, `会把这个号的文案设定（定位、口吻、每篇必写、话题配比）、封面样式和出图拍法换成「${p.name}」的，之后还能改。`, '套用',
+      async () => { if (await api('/api/account/persona', {id, persona: t.value})) toast('已套用'); });
+    $('#dlg').addEventListener('close', () => render(), {once: true});
+  }
+  if (t.dataset.fresh) api('/api/account/persona', {id: t.dataset.fresh, fresh: t.checked}).then(j => j && toast(t.checked ? '从今天起按起号节奏排' : '已改成稳定期'));
   if (t.id === 'autoSplit') PICK.split = t.checked ? 2 : 1;
   if (t.id === 'whenAt') UI.whenAt = t.value;
   if (t.id === 'markAi') UI.markAi = t.checked;
@@ -1146,7 +1216,10 @@ document.addEventListener('click', async e => {
       const j = await api('/api/job', {kind: 'lock', params});
       if (j) toast(`已开始出图，约 ${j.job.estimateMin} 分钟${params.autoWrite ? '，出完自动写文案' : ''}`);
       break; }
-    case 'report': { const lj = (it.lockJobs || [])[0]; openDlg(`<h2>出图报告</h2><p class="small muted" style="margin:0">${esc(lj ? lj.dir : '')}</p><pre class="log">${esc(lj && lj.report ? lj.report : '还没有报告')}</pre>` + closeBtn, () => {}); break; }
+    case 'dropClash': { const used = ((r.clash || {}).images || []).map(u => u.img); if (await api('/api/review', {account: UI.acc, id, action: 'images', images: (r.images || []).filter(p => !used.includes(p))})) toast('已去掉，可以定稿了'); break; }
+    case 'calMode': UI.calAll = b.dataset.k === 'all'; save(); render(); break;
+    case 'multiShoot': { const cur = D.items.find(i => i.id === id); if (cur) dlgMulti(cur); break; }
+    case 'report': { const lj = myJobs(it)[0]; openDlg(`<h2>出图报告</h2><p class="small muted" style="margin:0">${esc(lj ? lj.dir : '')}</p><pre class="log">${esc(lj && lj.report ? lj.report : '还没有报告')}</pre>` + closeBtn, () => {}); break; }
     case 'pickImg': { const p = b.dataset.p, i = W.imgs.indexOf(p); if (i >= 0) W.imgs.splice(i, 1); else W.imgs.push(p); render(); break; }
     case 'toWrite': W.topic = null; go('copy', 'write'); break;
     // 文案
@@ -1250,7 +1323,7 @@ document.addEventListener('click', async e => {
     case 'login': login(id); break;
     case 'checkLogin': { const j = await api('/api/xhs/check', {account: id || UI.acc}); if (j) toast(j.loggedIn ? '登录好了' : '还没登录上，再扫一次试试'); break; }
     case 'renameAcc': { const v = document.querySelector(`[data-accname="${CSS.escape(id)}"]`).value.trim(); document.activeElement.blur(); if (v && await api('/api/account', {id, name: v})) toast('已改名'); break; }
-    case 'addAcc': { const v = $('#newAcc').value.trim(); if (!v) { $('#newAcc').focus(); break; } document.activeElement.blur(); const j = await api('/api/account', {name: v}); if (j) { UI.acc = String(j.account.id); save(); render(); toast('加好了，点「扫码登录」登上这个号'); } break; }
+    case 'addAcc': { const v = $('#newAcc').value.trim(); if (!v) { $('#newAcc').focus(); break; } document.activeElement.blur(); const j = await api('/api/account', {name: v, persona: $('#newPersona').value, fresh: $('#newFresh').checked}); if (j) { UI.acc = String(j.account.id); save(); render(); toast(j.account.persona ? '加好了，拍法、封面、文案口吻已按人设填好；点「扫码登录」登上这个号' : '加好了，点「扫码登录」登上这个号'); } break; }
     // 历史
     case 'reschedule': reschedule(id); break;
     case 'editRejected': UI.review = String(id); go('copy', 'review'); break;

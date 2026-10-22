@@ -708,7 +708,103 @@ class PanelTests(unittest.TestCase):
         self.m.verify_job(rw, self.m.demo_job_effect(rw), {"t": 0})
         self.assertEqual(self.m.review_by_id(rid)["comment"], "模特 165 穿 S，胯宽拿 M。")
         # 三个号的预设
-        self.assertEqual(set(self.m.api_state()["copyPresets"]), {"the reels", "the rumah daily", "the rumah"})
+        self.assertEqual(set(self.m.api_state()["copyPresets"]), {"the reels", "the rumah daily", "the rumah", "街拍号", "测评号"})
+
+    # ---------------------------------------------------------------- 矩阵：人设模板、起号节奏、一款多号、防撞车
+    def test_80_persona_template_and_ramp(self):
+        a = self.m.r_account({"name": "街拍号", "persona": "street", "fresh": True})["account"]
+        st = self.m.api_state()
+        acc = next(x for x in st["accounts"] if x["id"] == a["id"])
+        self.assertEqual(acc["persona"], "street")
+        self.assertEqual(acc["cover"], "text")
+        self.assertIn("城市", acc["must"])
+        self.assertEqual((acc["rhythm"]["stage"], acc["rhythm"]["target"]), ("养号", 1))
+        self.assertEqual(st["lastPick"]["byAcc"][a["id"]]["style"], "street")
+        self.assertIn("review", st["personas"])
+        with self.assertRaises(ValueError):
+            self.m.r_account({"name": "x", "persona": "nope"})
+        # 第 3 周冷启动 4 篇，第 10 周按人设稳定 4 篇；老号没有开始日期算稳定
+        start = self.m.load_state()["accounts"][-1]["startedAt"]
+        self.assertEqual(self.m.account_rhythm({"startedAt": start}, start + 15 * 864e5)["stage"], "冷启动")
+        self.assertEqual(self.m.account_rhythm({"startedAt": start, "persona": "street"}, start + 70 * 864e5)["target"], 4)
+        self.assertEqual(self.m.account_rhythm({})["stage"], "稳定")
+        # 老号换人设
+        self.m.r_account_persona({"id": "1", "persona": "review"})
+        self.assertTrue(next(x for x in self.m.api_state()["accounts"] if x["id"] == "1")["realFirst"])
+
+    def test_81_ramp_caps_week_in_next_slot(self):
+        a = self.m.r_account({"name": "新号", "fresh": True})["account"]
+        st = self.m.load_state()
+        t = st["accounts"][-1]["startedAt"] + 9 * 3600000
+        first = self.m.next_slot(st, a["id"], after=t)
+        st["schedule"] = [{"account": a["id"], "status": "pending", "at": first, "review": "x"}]
+        second = self.m.next_slot(st, a["id"], after=t)
+        d1, d2 = (self.m.datetime.date.fromtimestamp(x / 1000) for x in (first, second))
+        self.assertNotEqual(d1 - self.m.datetime.timedelta(days=d1.weekday()), d2 - self.m.datetime.timedelta(days=d2.weekday()))
+
+    def test_82_cross_account_gap_and_same_item(self):
+        self.m.r_account({"name": "二号"})
+        st = self.m.load_state()
+        base = int(self.m.datetime.datetime(2026, 10, 21, 9, 0).timestamp() * 1000)
+        st["drafts"].append({"id": 900, "account_id": "2", "item": "it1", "status": "未审核", "title": "t", "body": "b", "tags": [], "images": []})
+        st["schedule"] = [{"account": "2", "status": "pending", "at": base + int(3.5 * 3600000), "review": "900"}]   # 二号 21 日 12:30
+        a = self.m.next_slot(st, "1", after=base)
+        self.assertEqual(self.m.datetime.datetime.fromtimestamp(a / 1000).strftime("%d %H:%M"), "21 13:10")
+        b = self.m.next_slot(st, "1", after=base, item="it1")
+        self.assertEqual(self.m.datetime.datetime.fromtimestamp(b / 1000).strftime("%d %H:%M"), "23 12:30")
+
+    def test_83_image_reuse_blocked_and_similar_title_flagged(self):
+        self.m.r_account({"name": "二号"})
+        rid2 = self.m.add_drafts("2", "", [{"title": "演示稿二", "body": "只用于验证流程的演示正文。", "tags": ["a"] * 5,
+                                           "images": [str(self.image)]}], "test")[0]
+        with self.assertRaises(ValueError) as e:
+            self.m.r_review({"account": "2", "id": rid2, "action": "ready"})
+        self.assertIn("女装主号", str(e.exception))
+        clash = next(r for r in self.m.api_state()["reviews"] if r["id"] == rid2)["clash"]
+        self.assertEqual(clash["images"][0]["account"], "女装主号")
+        self.assertEqual(clash["similar"]["account"], "女装主号")
+
+    def test_84_publish_same_item_two_accounts_needs_gap(self):
+        self.m.r_account({"name": "二号"})
+        it = self.item_id()
+        self.m.update_draft(self.rid, item=it)
+        self.schedule(at=self.m.now_ms() + 3 * 3600000)
+        img3 = self.m.STUDIO / "images" / "03.png"
+        img3.write_bytes(self.m.PNG_1PX)
+        rid2 = self.m.add_drafts("2", it, [{"title": "另一个角度", "body": "完全不同的开头，讲尺码和身材。", "tags": ["a"] * 5,
+                                           "images": [str(img3)]}], "test")[0]
+        self.m.r_review({"account": "2", "id": rid2, "action": "ready"})
+        self.m.set_login("2", True)
+        q = self.m.r_publish_preview({"account": "2", "id": rid2})["quote"]
+        with self.assertRaises(ValueError) as e:
+            self.m.r_publish({"account": "2", "id": rid2, "quote": q, "at": self.m.now_ms() + 4 * 3600000})
+        self.assertIn("隔", str(e.exception))
+        q = self.m.r_publish_preview({"account": "2", "id": rid2})["quote"]
+        e2 = self.m.r_publish({"account": "2", "id": rid2, "quote": q, "at": "auto"})["entry"]
+        self.assertGreaterEqual(e2["at"] - self.entry(self.m.load_state()["schedule"][0]["id"])["at"], 864e5)
+
+    def test_85_lock_multi_queues_per_account(self):
+        root, it = self.lock_setup()
+        self.run_one(self.m.r_job({"kind": "spec", "params": {"item": it["id"]}})["job"])
+        self.m.r_item_checks({"id": it["id"], "confirmed": True})
+        refs = self.m.list_refs()
+        self.m.r_account({"name": "街拍号", "persona": "street"})
+        self.m.r_account({"name": "测评号", "persona": "review"})
+        st = self.m.load_state()
+        st["lastPick"]["byAcc"]["2"]["refs"] = refs[:1]
+        self.m.save_state(st)
+        res = self.m.r_lock_multi({"item": it["id"], "accounts": ["2", "3"]})
+        self.assertEqual([q["account"] for q in res["queued"]], ["2"])
+        self.assertEqual(res["skipped"][0]["account"], "3")
+        job = next(j for j in self.m.load_state()["jobs"] if j["id"] == res["queued"][0]["job"])
+        self.assertEqual(job["params"]["autoWrite"]["account"], "2")
+        # 同一款再给主号出一组也可以（不同号），同一个号重复不行
+        self.m.r_job({"kind": "lock", "params": {"item": it["id"], "account": "1", "face": "ai", "refs": refs}})
+        with self.assertRaises(ValueError):
+            self.m.r_job({"kind": "lock", "params": {"item": it["id"], "account": "2", "face": "ai", "refs": refs}})
+        self.run_one(job)
+        v = next(x for x in self.m.api_state()["items"] if x["id"] == it["id"])
+        self.assertEqual(v["lockJobs"][0]["account"], "2")
 
 
 if __name__ == "__main__":
