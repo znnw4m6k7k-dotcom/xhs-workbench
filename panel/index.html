@@ -900,14 +900,13 @@ function calPage() {
 const personaOpts = (cur, blank) => `<option value="">${blank}</option>` + Object.entries(D.personas || {}).map(([k, p]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
 function loginPage() {
   const rhy = a => { const r = a.rhythm || {}; return r.ramping ? `起号第 ${r.week} 周 · ${esc(r.stage)} · 这周最多 ${r.target} 篇` : r.target ? `稳定 · 每周 ${r.target} 篇` : '稳定'; };
-  return `<div class="panel pad stack"><div class="small muted">过期了发布会失败，回这里再扫一次。人设决定这个号的拍法、封面和文案口吻；新号勾上「按起号节奏」，前几周会自动少排几篇。</div>
+  return `<div class="panel pad stack"><div class="small muted">过期了发布会失败，回这里再扫一次。要加街拍号、测评号这类新号，在最下面写名字、选人设，拍法、封面和文案口吻会一次填好；勾「新注册的号」，前几周会自动少排几篇。</div>
     <div class="list">${D.accounts.map(a => `<div class="item"><div class="main row" style="flex-wrap:nowrap"><input data-accname="${esc(a.id)}" value="${esc(a.name)}" aria-label="账号名" style="max-width:220px">
         ${a.online ? '<span class="pill good">已登录</span>' : '<span class="pill bad">未登录</span>'}<span class="small muted">${a.checkedAt ? '上次检查 ' + fmtDT(a.checkedAt) : '还没检查过'}</span></div>
-      <div class="row small"><select data-persona="${esc(a.id)}" aria-label="人设" style="width:auto">${personaOpts(a.persona, '人设：没套')}</select>
-        <label class="row" style="gap:6px;flex-wrap:nowrap"><input type="checkbox" data-fresh="${esc(a.id)}" ${a.startedAt ? 'checked' : ''} style="width:auto"> 按起号节奏</label><span class="muted">${rhy(a)}</span></div>
+      <div class="row small muted">${a.persona && D.personas[a.persona] ? esc(D.personas[a.persona].name) + ' · ' : ''}${rhy(a)}</div>
       <div class="row"><button type="button" class="ghost" data-do="login" data-id="${esc(a.id)}">扫码登录</button><button type="button" class="ghost" data-do="checkLogin" data-id="${esc(a.id)}">我扫好了</button><button type="button" class="ghost" data-do="renameAcc" data-id="${esc(a.id)}">改名</button></div></div>`).join('')}</div>
-    <div class="row" style="flex-wrap:nowrap"><input id="newAcc" placeholder="再加一个号：写个名字"><select id="newPersona" aria-label="人设" style="width:auto">${personaOpts('', '选人设（可不选）')}</select>
-      <label class="row small" style="gap:6px;flex-wrap:nowrap"><input type="checkbox" id="newFresh" checked style="width:auto"> 新注册的号</label><button type="button" data-do="addAcc">加一个号</button></div>
+    <div class="row" style="flex-wrap:nowrap"><input id="newAcc" placeholder="再加一个号：写个名字"><select id="newPersona" aria-label="人设" style="width:auto;min-width:140px">${personaOpts('', '选人设')}</select>
+      <label class="row small" style="gap:6px;flex-wrap:nowrap;white-space:nowrap"><input type="checkbox" id="newFresh" checked style="width:auto"> 新注册的号</label><button type="button" data-do="addAcc">加一个号</button></div>
     <div class="small muted">${Object.values(D.personas || {}).map(p => `<b>${esc(p.name)}</b>：${esc(p.desc)}`).join('　')}</div></div>`;
 }
 
@@ -1148,13 +1147,6 @@ document.addEventListener('change', e => {
     else api('/api/account/cover', {id: UI.acc, cover: t.value}).then(j => j && toast('封面样式已改'));
   }
   if (t.id === 'autoWrite') { PICK.autoWrite = t.checked; render(); }
-  if (t.dataset.persona && t.value) {
-    const id = t.dataset.persona, p = D.personas[t.value], a = D.accounts.find(x => String(x.id) === id) || {};
-    dlgConfirm(`「${a.name}」套用「${p.name}」人设`, `会把这个号的文案设定（定位、口吻、每篇必写、话题配比）、封面样式和出图拍法换成「${p.name}」的，之后还能改。`, '套用',
-      async () => { if (await api('/api/account/persona', {id, persona: t.value})) toast('已套用'); });
-    $('#dlg').addEventListener('close', () => render(), {once: true});
-  }
-  if (t.dataset.fresh) api('/api/account/persona', {id: t.dataset.fresh, fresh: t.checked}).then(j => j && toast(t.checked ? '从今天起按起号节奏排' : '已改成稳定期'));
   if (t.id === 'autoSplit') PICK.split = t.checked ? 2 : 1;
   if (t.id === 'whenAt') UI.whenAt = t.value;
   if (t.id === 'markAi') UI.markAi = t.checked;
