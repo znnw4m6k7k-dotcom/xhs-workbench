@@ -373,7 +373,7 @@ const myItems = () => D.items.filter(i => i.lockName && (!i.account || String(i.
 const acc = () => D.accounts.find(a => String(a.id) === String(UI.acc));
 const itemName = id => (D.items.find(i => i.id === id) || {}).name || '';
 function checkDraft(d, needImg = true) {
-  const errs = [], warns = [], t = String(d.title || '').trim(), b = String(d.body || ''), all = t + b;
+  const errs = [], warns = [], t = String(d.title || '').trim(), b = String(d.body || ''), all = t + b + String(d.comment || '');
   if (!t) errs.push('缺标题'); else if (len(t) > 18) errs.push(`标题 ${len(t)} 字，超过 18`);
   if (!b.trim()) errs.push('缺正文'); else if (len(b) > 888) errs.push(`正文 ${len(b)} 字，超过 888`);
   const banned = F().riskErrors.concat(String((acc() || {}).banned || '').split(/[、,，\s]+/).filter(Boolean));
@@ -429,7 +429,7 @@ const DESC = {
   'img.lib': '模特照片和想模仿的参考图。参考图按风格分组，可以自己加组；出图时选了风格就自动带上。',
   'copy.topic': '每个号一个选题库。看场景 × 身材哪里还空着，挑一条去写。',
   'copy.review': '挑标题、改字。没问题就定稿，交给「发布」。',
-  'copy.write': '选款、选图、选题，交给 AI 写。写好进「审稿」，不会自动发。',
+  'copy.write': '从「选题库」点「写这条」或从「出好的图」点「写文案」进来。写好进「审稿」，不会自动发。',
   'copy.set': '账号定位、口吻和封面样式设一次，之后每篇都按这个写。',
   'pub.queue': '调封面和图序，选时间。到点工作台打开浏览器直接发。',
   'pub.cal': '这一周排了什么、发了什么、哪篇没发出去。',
@@ -444,7 +444,7 @@ function subsOf(tab) {
   const nTodo = R.filter(r => ['todo', 'rejected'].includes(draftState(r))).length, nReady = R.filter(r => draftState(r) === 'ready').length;
   return {
     img: [['info', '照片和资料'], ['shoot', '出图'], ['result', '出好的图'], ['lib', '模特和参考图库']],
-    copy: [['topic', `选题库（${unusedTopics().length}）`], ['review', `审稿（${nTodo}）`], ['write', '写新的一篇'], ['set', '文案设定']],
+    copy: [['topic', `选题库（${unusedTopics().length}）`], ['review', `审稿（${nTodo}）`]].concat(UI.sub.copy === 'write' ? [['write', '写稿']] : [], [['set', '文案设定']]),
     pub: [['queue', `待发布（${nReady}）`], ['cal', '排期日历'], ['login', '账号登录']],
     hist: [['all', '全部'], ['pub', '已发布'], ['fail', '没发出 / 驳回'], ['ai', 'AI 任务']],
   }[tab];
@@ -683,7 +683,7 @@ function topicPage() {
 }
 function reviewPage(R) {
   const r = R.find(x => String(x.id) === UI.review);
-  if (!r) return '<div class="empty">没有待审的稿。到「写新的一篇」，或在「产品图 › 出图」里打开「出完自动写文案」。</div>';
+  if (!r) return '<div class="empty">没有待审的稿。到「选题库」挑一条点「写这条」，或在「产品图 › 出好的图」里挑图写。</div>';
   const st = draftState(r), c = checkDraft(r), g = allGrades();
   const cands = Array.from(new Set([r.title].concat(r.titles || []))).filter(Boolean);
   const imgs = r.images || [];
@@ -695,8 +695,10 @@ function reviewPage(R) {
     <div class="sec titles"><h3>挑一个标题 <span class="small muted" style="font-weight:400">AI 给 3 个方向：身材痛点 / 场景 / 细节钩子</span></h3>${cands.map(t => `<label><input type="radio" name="title" value="${esc(t)}" ${t === r.title ? 'checked' : ''}> ${esc(t)} <span class="small muted" style="margin-left:auto">${len(t)} 字</span></label>`).join('')}
       <label><input type="radio" name="title" value="__own"> <input id="ownTitle" placeholder="自己写一个（≤18 字）" style="border:0;padding:0;background:none"></label></div>
     <div class="row" style="flex-wrap:nowrap"><input id="rwNote" placeholder="说一句怎么改，AI 来改：例如 开头改成提问；第三段太像广告" aria-label="让 AI 改"><button type="button" data-do="rewrite" data-id="${r.id}">让 AI 改</button><button type="button" class="ghost" data-do="paste">粘贴 GPT 写的</button></div>
+    <div class="row">${QUICK_RW.map(q => `<button type="button" class="chip" data-do="quickRw" data-id="${r.id}" data-note="${esc(q[1])}">${esc(q[0])}</button>`).join('')}</div>
     <label class="f">正文 <span class="num" id="bodyCount" style="align-self:flex-end;margin-top:-20px">${len(r.body)} / 888</span><textarea id="rBody" rows="9">${esc(r.body)}</textarea></label>
     <label class="f">话题（空格分开，${esc((acc() || {}).tagMix || '款式 3 · 人群 2 · 场景 2 · 季节 2')}）<input id="rTags" value="${esc((r.tags || []).join(' '))}"></label>
+    <label class="f">置顶评论（尺码答疑，发布后贴到评论区置顶）<textarea id="rComment" rows="3" placeholder="例：模特 160cm 48kg 穿 M；肩宽的拿大一码。拿不准尺码评论区报身高体重～">${esc(r.comment || '')}</textarea></label>
     <div class="actions"><div class="row"><button type="button" class="ghost danger" data-do="reject" data-id="${r.id}">驳回</button><button type="button" class="ghost danger" data-do="delDraft" data-id="${r.id}">删除</button><button type="button" data-do="saveDraft" data-id="${r.id}">保存</button></div>
       <button type="button" class="primary big" data-do="finalize" data-id="${r.id}" ${c.ok ? '' : 'disabled title="先改掉红色问题"'}>文案定稿，去发布 →</button></div>`;
 }
@@ -707,7 +709,8 @@ function readEdits(r) {
   if (title !== r.title) edits.title = title;
   const body = $('#rBody').value; if (body !== r.body) edits.body = body;
   const tags = $('#rTags').value.split(/[\s,，#、]+/).filter(Boolean); if (tags.join(' ') !== (r.tags || []).join(' ')) edits.tags = tags;
-  return {edits, title, body, tags};
+  const comment = ($('#rComment') || {value: r.comment || ''}).value.trim(); if (comment !== (r.comment || '')) edits.comment = comment;
+  return {edits, title, body, tags, comment};
 }
 function writePage() {
   const items = myItems().filter(i => lastImages(i).length || (i.realPhotos || []).length);
@@ -735,7 +738,19 @@ function writePage() {
     <label class="f">封面（这个号默认「${esc(D.covers[(acc() || {}).cover || 'text'])}」，在「文案设定」里改）<select id="wCover">${Object.entries(D.covers).map(([k, l]) => `<option value="${k}" ${k === cover ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
     ${it.modelSize ? `<div class="small muted">文案会写清：${esc(it.modelSize)}，并给选码建议。${it.pain ? `开头会点出痛点「${esc(it.pain)}」。` : ''}</div>` : `<div class="hint warn">还没填「模特身高体重和穿的码」，女装笔记最常被问的就是这个。<button type="button" class="link" data-do="goItem" data-id="${esc(it.id)}">去填</button></div>`}
     <label class="f">补充要求（可不填）<input id="writeNote" placeholder="例：口吻像闺蜜聊天；重点讲不扎、不起球"></label>
+    <label class="f">对标笔记（可不填）<textarea id="writeRef" rows="3" maxlength="2000" placeholder="贴一篇同行的爆款笔记（标题 + 正文）。AI 只学它的结构和节奏，不抄句子、不用它的产品信息。"></textarea></label>
     <div class="actions"><span class="small muted">写好后进「审稿」，不会自动发</span><button type="button" class="primary big" data-do="write" data-id="${esc(it.id)}" ${W.imgs.length && !job ? '' : 'disabled'}>交给 AI 写</button></div>`;
+}
+const QUICK_RW = [['开头更抓人', '开头三行改得更抓人：直接点出痛点或场景，不铺垫'], ['更口语', '整篇改得更口语，像真人说话，短句、少形容词'],
+  ['缩短一半', '正文缩短到现在的一半左右，保留尺码和最打动人的细节'], ['加尺码段', '加一段尺码：模特身高体重穿的码 + 一句选码建议'],
+  ['换标题方向', '重写 3 个标题，换成和现在不同的方向']];
+function presetRow(a) {
+  const P = D.copyPresets || {}, names = Object.keys(P);
+  if (!names.length) return '';
+  const empty = !['position', 'tone', 'must', 'tagMix'].some(k => a[k]);
+  const hit = names.find(n => n.toLowerCase() === String(a.name || '').trim().toLowerCase());
+  return `<div class="${empty ? 'hint' : 'row'}" style="flex-wrap:wrap;gap:8px;align-items:center">${empty ? `<span>这个号还没设。${hit ? `一键套用「${esc(hit)}」的预设，之后还能改：` : '可以先套一个预设再改：'}</span>` : '<span class="small muted">套用预设（会覆盖下面的内容）：</span>'}
+    ${names.map(n => `<button type="button" class="chip" data-do="preset" data-k="${esc(n)}" aria-pressed="${n === hit && empty}">${esc(n)}</button>`).join('')}</div>`;
 }
 function setPage() {
   const a = acc() || {};
@@ -751,6 +766,7 @@ function setPage() {
       <h2>${esc(a.name || '')}</h2>
       <label class="f">写作风格<select id="cs-writeStyle"><option value="gaosaka" ${(a.writeStyle || 'gaosaka') === 'gaosaka' ? 'selected' : ''}>高坂风格 · 品牌主理人</option><option value="standard" ${a.writeStyle === 'standard' ? 'selected' : ''}>日常分享</option></select></label>
       <div class="small muted">高坂风格：先讲产品事实，再解释穿着价值；短段落、克制表达，有依据才写开发故事和销量。保存后用于新稿、试写和改稿。</div>
+      ${presetRow(a)}
       ${fld('position', '账号定位（一句话）', '小个子女生的通勤和约会穿搭')}${fld('tone', '口吻', '像闺蜜聊天，少用感叹号')}
       ${fld('must', '每篇必写', '模特身高体重和穿的码 + 一句选码建议', true)}${fld('banned', '自己再加的禁用词（顿号分开）', '便宜、清仓')}
       ${fld('tagMix', '话题配比', '款式 3、人群 2、场景 2、季节 2')}
@@ -788,7 +804,8 @@ function queuePage(r) {
   const imgRow = `<div class="imgs">${imgs.map((p, i) => `<div class="img"><img class="th" src="${img(p)}" alt="第 ${i + 1} 张">${i === 0 ? '<span class="cv">封面</span>' : ''}<span class="gr">${gradePill(g[p])}</span>
       ${sched ? '' : `<div class="ops">${i ? `<button type="button" data-do="img" data-op="cover" data-i="${i}" data-id="${r.id}">设为封面</button><button type="button" data-do="img" data-op="left" data-i="${i}" data-id="${r.id}" aria-label="往前挪">←</button>` : ''}${i < imgs.length - 1 ? `<button type="button" data-do="img" data-op="right" data-i="${i}" data-id="${r.id}" aria-label="往后挪">→</button>` : ''}${imgs.length > 1 ? `<button type="button" class="danger" data-do="img" data-op="drop" data-i="${i}" data-id="${r.id}" aria-label="不用这张">×</button>` : ''}</div>`}</div>`).join('')}</div>`;
   const head = `<div class="ihead"><div><h2>${esc(r.title)}</h2><div class="small muted">${esc(itemName(r.item) || '')}${(r.tags || []).length ? ` · ${(r.tags || []).length} 个话题` : ''} · ${len(r.body)} 字</div></div><button type="button" class="ghost" data-do="backToCopy" data-id="${r.id}" ${sched ? 'hidden' : ''}>文案还要改</button></div>
-    <div class="sec"><div class="h"><h3>图片顺序</h3><span class="small muted">鼠标放到图上调整 · 第 1 张是封面，首图决定点击率</span></div>${imgRow}</div>`;
+    <div class="sec"><div class="h"><h3>图片顺序</h3><span class="small muted">鼠标放到图上调整 · 第 1 张是封面，首图决定点击率</span></div>${imgRow}</div>
+    ${r.comment ? `<div class="sec"><div class="h"><h3>置顶评论</h3><button type="button" class="ghost" data-do="copyComment" data-id="${r.id}">复制</button></div><div class="hint" style="white-space:pre-wrap;color:var(--ink)">${esc(r.comment)}</div><div class="small muted">发出去后在 App 里贴到评论区，长按置顶。</div></div>` : ''}`;
   if (sched) return head + `<div class="notice">已排在 <b>${fmtDT(sched.at)}</b>，到点工作台会打开浏览器直接发。那个时间 <b>Mac 要开着、别合盖，工作台要开着</b>。${sched.markAi ? '会勾选「笔记含 AI 合成内容」。' : '不勾选 AI 合成内容。'}</div>
     <div class="actions"><span></span><button type="button" class="danger" data-do="unsched" data-id="${esc(sched.id)}">取消排期</button></div>`;
   return head + `<div class="sec"><h3>发布时间</h3><div class="when">${T.map(t => `<button type="button" class="chip" data-do="when" data-k="${t.k}" aria-pressed="${UI.when === t.k}">${esc(t.l)}</button>`).join('')}
@@ -1151,10 +1168,10 @@ document.addEventListener('click', async e => {
     case 'saveDraft': {
       const x = readEdits(r); document.activeElement.blur();
       if (!Object.keys(x.edits).length && r.status !== '驳回') { toast('没有改动'); break; }
-      if (await api('/api/review', {account: UI.acc, id, action: 'save', title: x.title, body: x.body, tags: x.tags})) toast('已保存');
+      if (await api('/api/review', {account: UI.acc, id, action: 'save', title: x.title, body: x.body, tags: x.tags, comment: x.comment})) toast('已保存');
       break; }
     case 'finalize': {
-      const x = readEdits(r), c = checkDraft({...r, title: x.title, body: x.body, tags: x.tags});
+      const x = readEdits(r), c = checkDraft({...r, title: x.title, body: x.body, tags: x.tags, comment: x.comment});
       if (!c.ok) { toast('先改掉：' + c.errs.join('；')); break; }
       document.activeElement.blur();
       if (Object.keys(x.edits).length && !(await api('/api/review', {account: UI.acc, id, action: 'save', ...x.edits}))) break;
@@ -1169,6 +1186,13 @@ document.addEventListener('click', async e => {
       document.activeElement.blur();
       if (await api('/api/review', {account: UI.acc, id, action: 'rewrite', note})) toast('已交给 AI 改，改好这里会自动更新');
       break; }
+    case 'copyComment': {
+      const t = (D.reviews.find(x => String(x.id) === String(id)) || {}).comment || '';
+      try { await navigator.clipboard.writeText(t); toast('已复制置顶评论'); } catch (e) { toast('复制不了，手动选中复制吧'); }
+      break; }
+    case 'quickRw':
+      if (await api('/api/review', {account: UI.acc, id, action: 'rewrite', note: b.dataset.note})) toast(`已交给 AI「${b.textContent}」，改好这里会自动更新`);
+      break;
     case 'paste': openDlg(`<h2>粘贴 GPT 写的文案</h2><p class="small muted" style="margin:0">把 ChatGPT 或 Codex 里写好的整段贴进来，会自动拆成标题、正文和话题，填进当前这篇；保存前还能再改。</p><label class="f">文案<textarea id="pasteText" rows="10" required></textarea></label>` + btns('拆开填进去'),
       async f => {
         const x = parsePasted(f.querySelector('#pasteText').value);
@@ -1184,13 +1208,19 @@ document.addEventListener('click', async e => {
       }); break;
     case 'write': {
       if (!UI.acc) { toast('先选账号'); break; }
-      const j = await api('/api/job', {kind: 'write', params: {account: UI.acc, item: id, images: W.imgs, count: W.split, cover: W.cover || (acc() || {}).cover || 'text', topic: W.topic || '', note: ($('#writeNote') || {}).value || ''}});
+      const j = await api('/api/job', {kind: 'write', params: {account: UI.acc, item: id, images: W.imgs, count: W.split, cover: W.cover || (acc() || {}).cover || 'text', topic: W.topic || '', note: ($('#writeNote') || {}).value || '', ref: ($('#writeRef') || {}).value || ''}});
       if (j) { W.topic = null; toast('已交给 AI 写，写好会出现在「审稿」'); }
       break; }
     case 'saveCopy': {
       const body = {id: UI.acc}; ['writeStyle', 'position', 'tone', 'must', 'banned', 'tagMix'].forEach(k => body[k] = $('#cs-' + k).value.trim());
       document.activeElement.blur();
       if (await api('/api/account/copy', body)) toast('已保存，之后写的文案都按这个来');
+      break; }
+    case 'preset': {
+      const pv = (D.copyPresets || {})[b.dataset.k]; if (!pv) break;
+      const doIt = async () => { if (await api('/api/account/copy', {id: UI.acc, ...pv})) toast(`已套用「${b.dataset.k}」的设定，可以接着改`); };
+      const a = acc() || {};
+      if (['position', 'tone', 'must', 'tagMix'].some(k => a[k])) dlgConfirm(`套用「${b.dataset.k}」的预设？`, '会覆盖现在的定位、口吻、每篇必写和话题配比。', '套用', doIt); else doIt();
       break; }
     case 'trial': { const j = await api('/api/job', {kind: 'trial', params: {account: UI.acc, item: W.trialItem}}); if (j) toast('开始试写，大约 1–2 分钟'); break; }
     // 发布

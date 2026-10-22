@@ -45,6 +45,12 @@ STUDIO = Path(os.environ.get("XHS_STUDIO_HOME", str(HOME / ".xhs-studio")))
 # 各店自己的场景/身材/类目设置放 fashion.json（不进仓库）；没有就用仓库里的示例
 FASHION_FILE = Path(os.environ.get("XHS_FASHION_FILE") or (HERE / "fashion.json" if (HERE / "fashion.json").exists() else HERE / "fashion.example.json"))
 FASHION = json.loads(FASHION_FILE.read_text("utf-8"))
+# 小红书女装常见限流词：内置一份，和店里 fashion.json 里自己加的合在一起用
+RISK_ERRORS = ["最好", "第一", "绝对", "最佳", "顶级", "极致", "首选", "唯一", "100%", "永不", "永久", "万能", "全网最低", "最低价", "史上",
+               "平替", "一比一", "1:1", "大牌同款", "高仿", "原单", "专柜", "复刻", "微信", "vx", "淘宝", "拼多多", "私信下单", "链接在"]
+RISK_WARNS = ["显瘦", "封神", "闭眼入", "天花板", "必买", "必入", "断货", "爆款", "yyds", "绝绝子"]
+FASHION["riskErrors"] = list(dict.fromkeys(RISK_ERRORS + FASHION.get("riskErrors", [])))
+FASHION["riskWarns"] = list(dict.fromkeys(RISK_WARNS + FASHION.get("riskWarns", [])))
 IMG_EXT = {".png", ".jpg", ".jpeg", ".webp", ".heic"}
 DEMO = False
 LOCK = threading.RLock()
@@ -268,7 +274,7 @@ def add_drafts(aid, item, drafts, origin):
             s["lastDraftId"] = nid
             s["drafts"].append({"id": nid, "account_id": str(aid), "item": item or "", "status": "未审核",
                                 "title": d["title"], "body": d["body"], "tags": d["tags"], "images": d["images"],
-                                "titles": d.get("titles") or [], "origin": origin, "created_at": fmt_ms(now_ms())})
+                                "titles": d.get("titles") or [], "comment": d.get("comment", ""), "origin": origin, "created_at": fmt_ms(now_ms())})
             ids.append(nid)
     mutate(f)
     return ids
@@ -288,7 +294,8 @@ def clean_draft(d, images=True, account=None):
         raise ValueError("稿件格式不对")
     out = {"title": str(d.get("title") or "").strip(), "body": str(d.get("body") or "").strip(),
            "tags": split_tags(d.get("tags"))[:10],
-           "titles": [str(t).strip()[:18] for t in (d.get("titles") or []) if str(t).strip()][:3]}
+           "titles": [str(t).strip()[:18] for t in (d.get("titles") or []) if str(t).strip()][:3],
+           "comment": str(d.get("comment") or "").strip()[:300]}
     if images:
         out["images"] = [str(Path(x).expanduser()) for x in (d.get("images") or [])]
     if account is not None:
@@ -332,7 +339,8 @@ def import_topics(p, data):
 # ---------------------------------------------------------------- prompts for Codex
 FASHION_RULES = ("女装合规：只用单品资料里的真实信息，不编造价格、面料成分、功效、销量和用户评价；"
                  "不出现 大牌同款、平替、一比一、高仿、原单、专柜 等字样；不用 绝对、第一、最好、永不起球 这类极限词；"
-                 "身材相关表述友善，不制造身材焦虑。")
+                 "身材相关表述友善，不制造身材焦虑。"
+                 "这些词标题、正文、评论里一个都不能出现：%s。" % "、".join(FASHION["riskErrors"]))
 COPY_GUIDE = HERE.parent / "references" / "copywriting.md"
 GAOSAKA_GUIDE = HERE.parent / "references" / "gaosaka-style.md"
 COPY_STYLES = {"gaosaka": "高坂风格 · 品牌主理人", "standard": "日常分享"}
@@ -360,6 +368,21 @@ def account_name(aid):
 
 
 COPY_KEYS = {"writeStyle": "写作风格", "position": "账号定位", "tone": "口吻", "must": "每篇必写", "banned": "不要用这些词", "tagMix": "话题配比"}
+# 三个号的文案设定预设（按主页风格整理），在「文案设定」一键套用后还能改
+COPY_PRESETS = {
+    "the reels": {"position": "独立女装工作室的日常：一件衣服的面料、做工和版型讲透",
+                  "tone": "像做衣服的人在聊料子，克制、具体，不喊口号，不用感叹号和网络热词",
+                  "must": "面料成分和摸上去的手感 + 一个做工或版型细节 + 尺码建议（平铺尺寸或模特数据）",
+                  "banned": "", "tagMix": "款式 3、面料 2、人群 2、季节 2"},
+    "the rumah daily": {"position": "同一个女生每天穿什么：真实上身的日常穿搭记录",
+                        "tone": "第一人称，像和朋友说今天穿了什么，轻松自然，短句",
+                        "must": "我的身高体重和穿的码 + 今天的场景 + 一套完整搭配（上衣、下装、鞋包）",
+                        "banned": "", "tagMix": "款式 3、人群 2、场景 2、季节 2"},
+    "the rumah": {"position": "the rumah 品牌主号：每一季的系列和设计想法",
+                  "tone": "品牌口吻，简洁有质感，像杂志旁白，不卖力推销",
+                  "must": "系列或主题名 + 一句设计想法 + 面料和版型 + 尺码信息",
+                  "banned": "", "tagMix": "品牌和系列 2、款式 3、风格 2、季节 2"},
+}
 
 
 def account_copy(aid):
@@ -492,9 +515,10 @@ def verify_job(job, result, before):
         r = review_by_id(p["review"])
         if not r:
             raise ValueError("这篇稿已经不在了")
-        if (d["title"], d["body"], d["tags"]) == (r["title"], r["body"], r["tags"]):
+        if (d["title"], d["body"], d["tags"], d["comment"]) == (r["title"], r["body"], r["tags"], r.get("comment", "")):
             raise ValueError("没有读到稿件改动，不能确认改写完成")
-        update_draft(p["review"], title=d["title"], body=d["body"], tags=d["tags"], titles=d["titles"] or r.get("titles") or [])
+        update_draft(p["review"], title=d["title"], body=d["body"], tags=d["tags"], titles=d["titles"] or r.get("titles") or [],
+                     comment=d["comment"] or r.get("comment", ""))
         mutate(lambda s: s["ready"].pop(str(p["review"]), None))
 
 
@@ -1037,7 +1061,7 @@ def write_prompt(p, st):
     imgs = p.get("images") or []
     lines = [
         "为小红书账号「%s」写 %d 篇女装图文笔记。只写文案，不要发布，也不要调用 RedBeacon。" % (account_name(p["account"]), p["count"]),
-        ("写法参考 %s。" % COPY_GUIDE) if COPY_GUIDE.is_file() else "",
+        ("先读写法手册 %s，按里面的骨架和口吻写；和下面账号设定冲突时听账号设定。" % COPY_GUIDE) if COPY_GUIDE.is_file() else "",
         copy_rules(p["account"]),
         item_facts(it),
         ("模特和尺码：%s。正文里要写清模特身高体重穿什么码，再给一句选码建议。" % it["modelSize"]) if it.get("modelSize") else "",
@@ -1065,12 +1089,15 @@ def write_prompt(p, st):
         lines.append("封面和其他图都不要加字、不要加贴纸，原图直接用。")
     lines += [
         ("额外要求：%s。" % p["note"]) if p.get("note") else "",
+        ("下面是一篇对标笔记，只学它的结构和节奏（开头怎么抓人、分几段、每段讲什么、结尾怎么互动），"
+         "不照抄句子，不用它的产品事实：\n<<<\n%s\n>>>" % p["ref"]) if p.get("ref") else "",
         ("每篇写 3 个不同钩子的标题候选（材质细节 / 季节场景 / 克制判断；有真实开发或市场证据才使用故事或数字），以 6–18 字为主；title 用第 1 个。"
          if copy_style(p["account"]) == "gaosaka" else "每篇写 3 个不同方向的标题候选（身高或身材 + 痛点 / 场景 / 细节钩子），都 ≤18 字；title 用第 1 个。"),
         tag_rule(p["account"]),
         "标题 ≤18 字，正文 ≤888 字，不用 Markdown 符号，不写 # 号和列表符号。" + FASHION_RULES,
         "写完把全部稿件存成一个 UTF-8 JSON 文件 %s，格式：" % p["outFile"],
-        '{"drafts":[{"title":"入审用的标题","titles":["标题1","标题2","标题3"],"body":"正文","tags":["话题1","话题2"],"images":["本篇用的图片绝对路径，第一张是封面"]}]}',
+        '{"drafts":[{"title":"入审用的标题","titles":["标题1","标题2","标题3"],"body":"正文","tags":["话题1","话题2"],"comment":"置顶评论","images":["本篇用的图片绝对路径，第一张是封面"]}]}',
+        "每篇另写一条 ≤150 字的置顶评论（comment）：再写一次模特身高体重和穿的码，按 2–3 种身材给选码建议，最后一句请大家报身高体重来问码。",
         "images 只能用上面给的图片路径（加了字或水印的用另存的新路径）。我已经在工作台点了按钮，这就是确认，不用再问我。",
         "全部完成后，最后一行只输出：{\"ok\":true,\"drafts\":<篇数>}",
     ]
@@ -1469,7 +1496,7 @@ def api_state():
         "accounts": rb["accounts"], "reviews": rb["reviews"], "archive": rb["archive"],
         "items": items, "schedule": st["schedule"], "ready": st["ready"],
         "jobs": [{k: v for k, v in j.items() if k != "prompt"} for j in st["jobs"]][::-1],
-        "settings": st["settings"], "fashion": FASHION, "now": now_ms(),
+        "settings": st["settings"], "fashion": FASHION, "copyPresets": COPY_PRESETS, "now": now_ms(),
         "lastPick": st.get("lastPick", {}),
         "nextSlot": {str(a["id"]): next_slot(st, a["id"]) for a in rb["accounts"]},
         "lock": {"ok": (lr / "AGENTS.md").is_file(), "path": str(lr), "models": list_models(), "refs": refs,
@@ -1537,7 +1564,7 @@ def validate_draft(r, images=True):
         raise ValueError("标题须为 1–18 字")
     if not body.strip() or len(body) > 888:
         raise ValueError("正文须为 1–888 字")
-    bad = [w for w in FASHION["riskErrors"] + (banned_words(r["account_id"]) if r.get("account_id") else []) if w in title + body]
+    bad = [w for w in FASHION["riskErrors"] + (banned_words(r["account_id"]) if r.get("account_id") else []) if w in title + body + str(r.get("comment") or "")]
     if bad:
         raise ValueError("请修改违规词：" + "、".join(bad))
     if re.search(r"^\s{0,3}#{1,6}\s|\*\*[^*]+\*\*|`", body, re.M):
@@ -1701,6 +1728,7 @@ def r_write_from_images(p):
         a = next((x for x in st["accounts"] if str(x["id"]) == str(p.get("account"))), {})
         p["cover"] = ("text" if p["coverText"] else "none") if "coverText" in p else account_cover(a)
     p.pop("coverText", None)
+    p["ref"] = str(p.get("ref") or "").strip()[:2000]
     if p["cover"] == "logo" and not account_logo(next((x for x in st["accounts"] if str(x["id"]) == str(p.get("account"))), {})):
         raise ValueError("这个号的封面设成了品牌水印，但还没上传 logo，到「文案 › 文案设定」里传一张")
     if p.get("topic"):
@@ -1742,10 +1770,11 @@ def r_review(body):
         mutate(lambda s: s["ready"].pop(rid, None))
     elif act == "save":
         candidate = dict(r)
-        candidate.update({k: body[k] for k in ("title", "body", "tags") if k in body})
+        candidate.update({k: body[k] for k in ("title", "body", "tags", "comment") if k in body})
+        candidate["comment"] = str(candidate.get("comment") or "").strip()[:300]
         candidate["tags"] = split_tags(candidate["tags"])[:10]
         validate_draft(candidate, images=False)
-        update_draft(rid, title=candidate["title"].strip(), body=candidate["body"], tags=candidate["tags"], status="未审核" if r["status"] == "驳回" else r["status"])
+        update_draft(rid, title=candidate["title"].strip(), body=candidate["body"], tags=candidate["tags"], comment=candidate["comment"], status="未审核" if r["status"] == "驳回" else r["status"])
         mutate(lambda s: s["ready"].pop(rid, None))
     elif act == "images":
         # 换封面、调顺序、去掉不要的图：只能用这篇原有的图
@@ -1765,10 +1794,11 @@ def r_review(body):
         need(body, "note")
         jid = uuid.uuid4().hex[:10]
         out = STUDIO / "work" / ("rewrite_%s.json" % jid)
-        src = {"title": r["title"], "body": r["body"], "tags": r["tags"]}
+        src = {"title": r["title"], "body": r["body"], "tags": r["tags"], "comment": r.get("comment", "")}
         prompt = ("按我的意见改写这篇女装小红书笔记。意见：%s。\n原稿（JSON）：%s\n"
                   "%s\n标题 ≤18 字，正文 ≤888 字，不用 Markdown 符号。%s\n"
-                  "改完存成 UTF-8 JSON 文件 %s，格式：{\"title\":\"\",\"titles\":[\"标题1\",\"标题2\",\"标题3\"],\"body\":\"\",\"tags\":[]}。不要发布。"
+                  "置顶评论 comment ≤150 字，意见没提到就保持原样（原稿没有就补一条尺码答疑）。"
+                  "改完存成 UTF-8 JSON 文件 %s，格式：{\"title\":\"\",\"titles\":[\"标题1\",\"标题2\",\"标题3\"],\"body\":\"\",\"tags\":[],\"comment\":\"\"}。不要发布。"
                   "最后一行只输出：{\"ok\":true}") % (body["note"], json.dumps(src, ensure_ascii=False),
                                                 "\n".join([("写法参考 %s。" % COPY_GUIDE) if COPY_GUIDE.is_file() else "",
                                                            copy_rules(aid), item_facts(find_item(load_state(), r.get("item")) or {}), tag_rule(aid)]), FASHION_RULES, out)
@@ -2168,7 +2198,8 @@ def demo_job_effect(job):
         parts = [imgs[i::n] for i in range(n)]
         drafts = [{"title": "演示稿件 %d" % (i + 1), "titles": ["演示标题甲", "演示标题乙", "演示标题丙"],
                    "body": "这是一条演示稿，用于验证写稿和审稿流程，不包含商品事实。",
-                   "tags": ["演示", "穿搭", "女装", "通勤", "秋冬穿搭", "小个子穿搭", "外套", "日常穿搭"], "images": parts[i]} for i in range(n)]
+                   "tags": ["演示", "穿搭", "女装", "通勤", "秋冬穿搭", "小个子穿搭", "外套", "日常穿搭"],
+                   "comment": "演示置顶评论：模特 160cm 48kg 穿 M。", "images": parts[i]} for i in range(n)]
         Path(p["outFile"]).parent.mkdir(parents=True, exist_ok=True)
         Path(p["outFile"]).write_text(json.dumps({"drafts": drafts}, ensure_ascii=False), "utf-8")
         return {"ok": True, "drafts": n}

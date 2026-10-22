@@ -17,6 +17,7 @@ cp "$SRC"/panel/server.py "$SRC"/panel/index.html "$SRC"/panel/studio.py "$SRC"/
 # 店里自己的设置和启动脚本已经有就不动
 for f in start.sh stop.sh; do [ -f "$X/panel/$f" ] || cp "$SRC/panel/$f" "$X/panel/"; done
 cp "$SRC"/publisher/*.py "$SRC"/publisher/*.html "$X/publisher/"
+cp "$SRC"/references/*.md "$X/references/"
 cp "$SRC/SKILL.md" "$X/SKILL.md"
 cp "$SRC/references/gaosaka-style.md" "$X/references/gaosaka-style.md"
 cd "$X/panel" && python3 -m unittest test_server -q
