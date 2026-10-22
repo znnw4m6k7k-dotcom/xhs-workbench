@@ -414,7 +414,7 @@ const activeJobs = () => D.jobs.filter(j => j.status === 'running' || j.status =
 const JOBST = {queued: ['排队中', ''], running: ['进行中', 'acc'], done: ['完成', 'good'], failed: ['失败', 'bad'], cancelled: ['已取消', '']};
 const JOBKIND = {spec: '写档案', lock: '出图', write: '写文案', rewrite: '改稿', topics: '出选题', trial: '试写'};
 const allGrades = () => Object.assign({}, ...D.items.map(i => i.grades || {}));
-const gradePill = g => g && g.grade ? `<span class="pill ${g.grade === 'A' ? 'good' : g.grade === 'B' ? 'warn' : 'bad'}">${g.grade}</span>` : '';
+const gradePill = g => g && g.grade ? `<span class="pill ${g.grade === 'A' || g.grade === '人工' ? 'good' : g.grade === 'B' ? 'warn' : 'bad'}">${g.grade}</span>` : '';
 const myTopics = () => mine(D.topics);
 const unusedTopics = () => myTopics().filter(t => t.status === 'unused');
 const refStyle = r => D.lock.refStyles[r] || 'other';
@@ -442,7 +442,10 @@ const weekStart = off => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDa
 const myJobs = it => (it.lockJobs || []).filter(j => !j.account || String(j.account) === String(UI.acc));
 const lastImages = it => (myJobs(it).find(j => j.images.length) || {images: []}).images;
 // 返工出来的图（评 C 的自动重出一次）算在原来那一批里
-const batches = it => myJobs(it).filter(j => j.images.length && !(j.recipe || {}).reworkOf);
+const batches = it => myJobs(it).filter(j => (j.images.length || (j.rejectedFiles || []).length) && !(j.recipe || {}).reworkOf);
+// 三次都没过、agent 留在 rejected/ 里等人挑的版本（不含自己点「驳回」的，那些在下面单独列）
+const leftovers = (it, cur) => !cur ? [] : [cur].concat(myJobs(it).filter(j => (j.recipe || {}).reworkOf === cur.name))
+  .flatMap(j => j.rejectedFiles || []).filter(p => !Object.values(D.imgRejected || {}).some(x => x.to === p));
 const batchOf = it => { const bs = batches(it); return bs.find(j => j.name === (UI.batch || {})[it.id]) || bs[0]; };
 const batchImages = it => { const b = batchOf(it); return b ? b.images.concat(...myJobs(it).filter(j => (j.recipe || {}).reworkOf === b.name).map(j => j.images)) : []; };
 function batchLabel(j, i) {
@@ -465,7 +468,7 @@ const busyHint = text => `<div class="hint"><span class="dot" style="display:inl
 // ---------- 结构：四大块，每块一排子页；每页页头一句话告诉人这一页干什么
 const DESC = {
   'img.info': '拍好的衣服照片放进来，AI 读吊牌写档案；你补上材质手感和痛点，再核对检查要点。',
-  'img.shoot': '选风格和参考图，锁住衣服细节出图。每个号记得自己上次的拍法，换号自动换。每张出完 AI 会放大检查，不合格自动重做。',
+  'img.shoot': '选风格和参考图，锁住衣服细节出图。每个号记得自己上次的拍法，换号自动换。每张出完 AI 会放大检查，不合格自动重做，最多 3 版，还不过就留给你挑。',
   'img.result': '挑能用的图（AI 图和实拍图可以混着用），第 1 张是封面，然后交给 AI 写文案。',
   'img.lib': '模特资料卡、每个号固定用谁，和想模仿的参考图。参考图按风格分组，可以自己加组；出图时选了风格就自动带上。',
   'copy.topic': '每个号一个选题库。看场景 × 身材哪里还空着，挑一条去写。',
@@ -625,7 +628,7 @@ function shootPage(it) {
   const last = myJobs(it)[0];
   if (job) {
     const mins = Math.max(0, Math.round(((job.startedAt || job.createdAt) + (job.estimateMin || 20) * 60e3 - Date.now()) / 60e3));
-    return `${busyHint(`正在出图：${esc(job.title)}。${job.status === 'queued' ? (activeJobs().some(j => j.status === 'running') ? '前面还有任务在排队。' : '马上开始。') : `预计还要 ${mins} 分钟左右。`}每张出完 AI 会放大检查脸和衣服，不合格自动重做。`)}
+    return `${busyHint(`正在出图：${esc(job.title)}。${job.status === 'queued' ? (activeJobs().some(j => j.status === 'running') ? '前面还有任务在排队。' : '马上开始。') : `预计还要 ${mins} 分钟左右。`}每张出完 AI 会放大检查脸和衣服，不合格自动重做，最多 3 版。`)}
       ${last && last.images.length ? `<div class="refs">${last.images.map(p => `<div class="ref"><img class="th" src="${img(p)}" alt=""><span class="l">${esc(base(p))}</span></div>`).join('')}</div>` : ''}
       <div class="row"><button type="button" class="ghost" data-do="log" data-id="${esc(job.id)}">看过程</button><button type="button" class="ghost danger" data-do="cancelJob" data-id="${esc(job.id)}">停止</button></div>`;
   }
@@ -682,7 +685,7 @@ function modelCard(m, pick) {
   return pick ? `<button type="button" class="model" data-do="pickModel" data-name="${esc(m.name)}" aria-pressed="${PICK.model === m.name}">${inner}</button>` : `<div class="model panel">${inner}</div>`;
 }
 function resultPage(it) {
-  const last = myJobs(it).find(j => j.images.length);
+  const last = myJobs(it).find(j => j.images.length || (j.rejectedFiles || []).length);
   const addReal = `<button type="button" data-do="addReal" data-id="${esc(it.id)}">＋ 加实拍图</button>`;
   if (!last && !(it.realPhotos || []).length) return `<div class="empty">还没有出好的图。<button type="button" class="link" data-do="goSub" data-tab="img" data-sub="shoot">去 ② 出图</button>，或者直接用自己拍的：<br><br>${addReal}</div>`;
   const g = it.grades || {}, cur = batchOf(it);
@@ -695,9 +698,11 @@ function resultPage(it) {
   const rw = cur ? myJobs(it).filter(j => (j.recipe || {}).reworkOf === cur.name) : [];
   const rwRun = cur && activeJobs().some(j => j.kind === 'lock' && j.params && j.params.reworkOf === cur.name);
   const nColor = (cur ? batchImages(it) : []).filter(p => (D.colorFlags || {})[p] && !isBad(it, p)).length;
+  const left = leftovers(it, cur);
   return `${batchSel(it)}${rwRun ? busyHint('这批有评 C 的图，正在自动返工一次（只重出那几张），好了接在这批后面。') : rw.length ? `<div class="hint">评 C 的已经自动返工过一次，返工的 ${rw.reduce((n, j) => n + j.images.length, 0)} 张接在这批后面。还不行就点「驳回」或换参考图重出。</div>` : ''}
-    ${nColor ? `<div class="hint warn">有 ${nColor} 张标了「颜色?」：成品中间的颜色和产品正面照差得比较多。可能只是光线，放大和实物对一下再用。</div>` : ''}<div class="hint">${cur ? `这批出了 ${cur.images.length} 张：A ${n.A || 0} · B ${n.B || 0}${n.C ? ` · C ${n.C}（灰掉的不能用）` : ''}${cur.rejected ? ` · ${cur.rejected} 张没通过已放进 rejected` : ''}。A 能直接用；B 衣服对、小地方请放大看。<b>一篇只能用同一批的图</b>，不满意的点图下面「驳回」。` : '这款还没出 AI 图，下面是实拍图。'}${(it.realPhotos || []).length ? `实拍图 ${it.realPhotos.length} 张，不过 AI，可以和 AI 图混着用。` : ''}点图选择，<b>第 1 张是封面</b>。</div>
+    ${nColor ? `<div class="hint warn">有 ${nColor} 张标了「颜色?」：成品中间的颜色和产品正面照差得比较多。可能只是光线，放大和实物对一下再用。</div>` : ''}<div class="hint">${cur ? `这批出了 ${cur.images.length} 张：A ${n.A || 0} · B ${n.B || 0}${n.C ? ` · C ${n.C}（灰掉的不能用）` : ''}${cur.rejected ? ` · ${cur.rejected} 版没通过，每版都留着` : ''}。A 能直接用；B 衣服对、小地方请放大看。<b>一篇只能用同一批的图</b>，不满意的点图下面「驳回」。` : '这款还没出 AI 图，下面是实拍图。'}${(it.realPhotos || []).length ? `实拍图 ${it.realPhotos.length} 张，不过 AI，可以和 AI 图混着用。` : ''}点图选择，<b>第 1 张是封面</b>。</div>
     <div class="refs">${pool.map(p => imgTile(it, p, W.imgs, true)).join('')}</div>
+    ${left.length ? `<details ${cur.images.length ? '' : 'open'}><summary class="small">这批有 ${left.length} 张没通过检查（每版都留着），你来挑</summary><div class="hint" style="margin-top:8px">AI 返工到第 3 版还不过就不再重做了，省时间也省额度。下面每一版都在，放大看看，觉得能用就点「用这张」，它会回到这批里，标「人工」。</div><div class="refs">${left.map(p => { const gr = (it.grades || {})[p]; return `<div class="refwrap"><a class="ref" href="${img(p)}" target="_blank" rel="noopener"><img class="th" src="${img(p)}" alt=""><span class="g">${gradePill(gr)}</span><span class="l">${esc(gr && gr.note ? gr.note : base(p))}</span></a><div class="tileops"><button type="button" class="link" data-do="imgApprove" data-p="${esc(p)}">用这张</button></div></div>`; }).join('')}</div></details>` : ''}
     ${rej.length ? `<details><summary class="small">这批驳回了 ${rej.length} 张</summary><div class="stack" style="gap:6px;margin-top:8px">${rej.map(([p, x]) => `<div class="row small" style="flex-wrap:nowrap"><img src="${img(x.to)}" alt="" style="width:36px;height:48px;object-fit:cover;border-radius:6px"><span>${esc(base(p))} · ${esc(x.why)} · ${fmtDT(x.at)}</span><button type="button" class="ghost" data-do="imgRestore" data-p="${esc(p)}">恢复</button></div>`).join('')}</div></details>` : ''}
     <div class="row">${addReal}<span class="small muted">上身、挂拍、平铺、手摸面料都行；要删在「照片和资料」里删</span></div>
     <div class="actions"><div class="row"><button type="button" class="link" data-do="report" data-id="${esc(it.id)}" ${cur ? '' : 'hidden'}>看出图报告</button><button type="button" class="link" data-do="imgInfo" data-id="${esc(it.id)}" ${cur ? '' : 'hidden'}>这批的配方</button></div>
@@ -1383,6 +1388,7 @@ document.addEventListener('click', async e => {
         return !!j;
       });
       break;
+    case 'imgApprove': { const why = prompt('为什么这张可以用？（会记下来）', '三次没过，人工看过可以用'); if (why !== null && await api('/api/image', {action: 'approve', path: b.dataset.p, why})) toast('已放回这批，标「人工」'); break; }
     case 'imgRestore': if (await api('/api/image', {action: 'restore', path: b.dataset.p})) toast('已恢复'); break;
     case 'dropRejected': { const bad = D.imgRejected || {}; if (await api('/api/review', {account: UI.acc, id, action: 'images', images: (r.images || []).filter(p => !bad[p])})) toast('已去掉'); break; }
     case 'pickRef': { const i = PICK.refs.indexOf(b.dataset.ref); if (i >= 0) PICK.refs.splice(i, 1); else PICK.refs.push(b.dataset.ref); render(); break; }

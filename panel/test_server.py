@@ -1149,5 +1149,115 @@ class PanelTests(unittest.TestCase):
         self.assertIn(str(outs[1]), self.m.api_state()["colorFlags"])
 
 
+    def test_106_lock_rejected_folder_never_usable(self):
+        root, it = self.shoot_ready()
+        job = self.m.r_job({"kind": "lock", "params": {"item": it["id"], "account": "1", "face": "hide", "refs": self.m.list_refs()}})["job"]
+        self.run_one(job)
+        jd = Path(job["params"]["jobDir"])
+        good = sorted(str(p) for p in (jd / "out").glob("*"))
+        (jd / "rejected").mkdir(exist_ok=True)
+        bad = jd / "rejected" / "演示_02_v3.png"
+        bad.write_bytes(Path(good[0]).read_bytes())
+        # agent 自己挪进 rejected/ 的图，工作台没记过驳回，也不能用
+        self.assertNotIn(str(bad), self.m.load_state().get("imgRejected") or {})
+        self.assertTrue(self.m.rejected_image(str(bad)))
+        self.assertFalse(self.m.rejected_image(good[0]))
+        for imgs in ([str(bad)], [good[0], str(bad)]):
+            with self.assertRaises(ValueError) as e:
+                self.m.check_batch_images(imgs)
+            self.assertIn("没通过", str(e.exception))
+            with self.assertRaises(ValueError):
+                self.m.r_job({"kind": "write", "params": {"account": "1", "item": it["id"], "images": imgs}})
+        with self.assertRaises(ValueError):
+            self.m.clean_draft({"title": "黑色套装", "body": "演示正文", "tags": ["演示"], "images": [str(bad)]}, account="1")
+        # 稿子里的图被换成 rejected/ 路径：定稿、预览、发布都拦住
+        rid = self.m.add_drafts("1", it["id"], [{"title": "黑色套装", "body": "演示正文", "tags": ["演示"], "images": good[:1]}], "test")[0]
+        self.ready(rid)
+        self.login()
+        q = self.m.r_publish_preview({"account": "1", "id": rid})["quote"]
+        self.m.update_draft(rid, images=[str(bad)])
+        with self.assertRaises(ValueError):
+            self.m.r_review({"account": "1", "id": rid, "action": "ready"})
+        with self.assertRaises(ValueError):
+            self.m.r_publish_preview({"account": "1", "id": rid})
+        with self.assertRaises(ValueError):
+            self.m.r_publish({"account": "1", "id": rid, "quote": q, "at": self.m.now_ms() + 7200000})
+
+    def test_107_lock_fail_shows_reason(self):
+        root, it = self.shoot_ready()
+        job = self.m.r_job({"kind": "lock", "params": {"item": it["id"], "account": "1", "face": "hide", "refs": self.m.list_refs()}})["job"]
+        jd = Path(job["params"]["jobDir"])
+        (jd / "out").mkdir(parents=True, exist_ok=True)
+        (jd / "out" / "a_01.png").write_bytes(self.image.read_bytes())
+        (jd / "report.md").write_text("| a_01.png | 评级 B，眼睛鼻子都在画外 |\n| a_02.png | 评级 C，露出鼻子 |", "utf-8")
+        (jd / "gen.json").write_text(json.dumps({"a_02.png": {"retries": 2}}), "utf-8")
+        with self.assertRaises(ValueError) as e:
+            self.m.verify_job(job, {"ok": False, "images": 1}, {"t": 0})
+        msg = str(e.exception)
+        self.assertIn("交了 1 张", msg)
+        self.assertIn("a_02.png 评 C：露出鼻子，返工 2 次仍为 C", msg)
+        self.assertNotIn("a_01", msg)
+        (jd / "report.md").write_text("第 2 张没做：生图额度用完", "utf-8")
+        with self.assertRaises(ValueError) as e:
+            self.m.verify_job(job, None, {"t": 0})
+        self.assertIn("额度", str(e.exception))
+        # 别的任务还是原来的说法
+        with self.assertRaises(ValueError) as e:
+            self.m.verify_job(dict(job, kind="spec"), None, {"t": 0})
+        self.assertIn("回执", str(e.exception))
+
+    def test_108_street_no_face_crop_rules(self):
+        root, it = self.shoot_ready()
+        refs = self.m.list_refs()
+        job = self.m.r_job({"kind": "lock", "params": {"item": it["id"], "account": "1", "face": "hide", "style": "street", "refs": refs}})["job"]
+        md = (Path(job["params"]["jobDir"]) / "job.md").read_text()
+        self.assertIn("不露脸（街拍，必过）", md)
+        self.assertIn("鼻尖", md)
+        self.assertIn("不露脸」是必过项", job["prompt"])
+        # 换真模特的街拍不加这段
+        p2 = {"face": "ai", "style": "street", "refs": refs}
+        self.assertNotIn("不露脸（街拍", self.m.lock_job_md(it, p2, "x"))
+        self.assertNotIn("不露脸」是必过项", self.m.lock_prompt(p2, "x"))
+        # 没过的每一版都留着，最多 3 版
+        self.assertIn("_v1、_v2、_v3", job["prompt"])
+
+    def test_109_human_picks_after_three_fails(self):
+        root, it = self.shoot_ready()
+        job = self.m.r_job({"kind": "lock", "params": {"item": it["id"], "account": "1", "face": "hide", "refs": self.m.list_refs()}})["job"]
+        self.run_one(job)
+        jd = Path(job["params"]["jobDir"])
+        good = sorted(str(p) for p in (jd / "out").glob("*"))
+        (jd / "rejected").mkdir(exist_ok=True)
+        vers = []
+        for n in (1, 2, 3):
+            f = jd / "rejected" / ("街拍_02_v%d.png" % n)
+            f.write_bytes(Path(good[0]).read_bytes())
+            vers.append(str(f))
+        (jd / "report.md").write_text("演示_01.png：评级 A，好\n街拍_02.png：评级 C，三版都露出鼻子", "utf-8")
+        (jd / "gen.json").write_text(json.dumps({"街拍_02.png": {"retries": 2}}), "utf-8")
+        v = next(x for x in self.m.api_state()["items"] if x["id"] == it["id"])
+        self.assertEqual(v["lockJobs"][0]["rejectedFiles"], vers)
+        # 人挑第 2 版：回到 out/，标人工，能和同批的图一起写
+        res = self.m.r_image({"action": "approve", "path": vers[1], "why": "鼻子只露一点，裁一下能用"})
+        picked = res["path"]
+        self.assertEqual(Path(picked).parent, jd / "out")
+        self.assertFalse(Path(vers[1]).exists())
+        self.assertFalse(self.m.rejected_image(picked))
+        self.assertTrue(self.m.rejected_image(vers[0]))
+        v = next(x for x in self.m.api_state()["items"] if x["id"] == it["id"])
+        self.assertEqual(v["grades"][picked]["grade"], "人工")
+        self.m.check_batch_images([good[0], picked])
+        (jd / "report.md").write_text("演示_01.png：评级 A，好\n街拍_02_v2.png：评级 C，露鼻子", "utf-8")
+        self.m.check_batch_images([picked])
+        # 人挑的不会再自动返工
+        n = len(self.m.load_state()["jobs"])
+        self.m.chain_after(dict(job, status="done"))
+        self.assertEqual(len(self.m.load_state()["jobs"]), n)
+        # 没挑的还是用不了；out 里的图不能「挑」
+        with self.assertRaises(ValueError):
+            self.m.check_batch_images([vers[0]])
+        with self.assertRaises(ValueError):
+            self.m.r_image({"action": "approve", "path": good[0]})
+
 if __name__ == "__main__":
     unittest.main()

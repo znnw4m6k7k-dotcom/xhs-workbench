@@ -540,10 +540,47 @@ def read_result_file(job):
         raise ValueError("稿件文件不是有效的 JSON")
 
 
+def lock_fail_reason(p):
+    """出图没全部交付时，从 report.md 和 gen.json 里找具体原因：哪张评 C、为什么、返工了几次，额度是不是用完了。"""
+    d = Path(p.get("jobDir") or "")
+    rep = d / "report.md"
+    text = rep.read_text("utf-8", errors="replace") if rep.is_file() else ""
+    gen = read_json_file(d / "gen.json")
+    groups = {}   # 同一张的几版（_v1/_v2/_v3）合成一条
+    for line in text.splitlines():
+        m = re.search(r"(?:评级|评)[：: ]*\**C\b|\bC\s*级", line)
+        if not m:
+            continue
+        name = re.search(r"[^\s|`*：:/]+\.(?:png|jpe?g|webp)", line, re.I)
+        key = re.sub(r"_v\d+(?=\.\w+$)", "", name.group(0)) if name else ""
+        why = re.sub(r"[|*`]", " ", line[m.end():]).strip(" ，,。;；:：-")[:40]
+        g = groups.setdefault(key, [0, []])
+        g[0] += 1
+        if why and why not in g[1]:
+            g[1].append(why)
+    bits = []
+    for key, (n, whys) in groups.items():
+        e = gen.get(key) if isinstance(gen.get(key), dict) else {}
+        r = e.get("retries") if isinstance(e.get("retries"), int) else n - 1
+        bits.append("%s评 C%s%s" % (key + " " if key else "", "：" + "、".join(whys[:3]) if whys else "",
+                                    "，返工 %d 次仍为 C" % r if r > 0 else ""))
+    if re.search(r"额度", text):
+        bits.append("生图额度用完了，做到哪一张看 report.md")
+    return "；".join(bits[:3]) + ("；还有 %d 条看 report.md" % (len(bits) - 3) if len(bits) > 3 else "")
+
+
+def lock_fail(p, msg):
+    why = lock_fail_reason(p)
+    return ValueError("%s：%s" % (msg, why) if why else msg)
+
+
 def verify_job(job, result, before):
-    if not isinstance(result, dict) or result.get("ok") is not True:
-        raise ValueError("未收到有效成果回执，不能确认任务完成")
     p, kind = job["params"], job["kind"]
+    if not isinstance(result, dict) or result.get("ok") is not True:
+        if kind == "lock":
+            n = result.get("images") if isinstance(result, dict) and isinstance(result.get("images"), int) else None
+            raise lock_fail(p, "出图没全部交付（交了 %d 张）" % n if n is not None else "出图没全部交付")
+        raise ValueError("未收到有效成果回执，不能确认任务完成")
     if kind == "spec":
         it = find_item(load_state(), p["item"])
         spec = item_dir(it) / "spec.md"
@@ -555,9 +592,9 @@ def verify_job(job, result, before):
         out = Path(p["jobDir"]) / "out"
         files = [f for f in out.glob("*") if f.suffix.lower() in IMG_EXT]
         if not files:
-            raise ValueError("没有出图成品，看 report.md 里的原因")
+            raise lock_fail(p, "没有出图成品")
         if result.get("images") != len(files):
-            raise ValueError("出图回执与实际成品数量不符")
+            raise lock_fail(p, "出图回执与实际成品数量不符")
         return
     data = read_result_file(job)
     if kind == "write":
@@ -654,6 +691,8 @@ def run_job(job):
         return
     ok = code == 0
     summary = ""
+    if not ok and job["kind"] == "lock":
+        summary = str(lock_fail(job["params"], "Codex 退出码 %s" % code))
     if ok:
         try:
             verify_job(job, result, before)
@@ -718,7 +757,10 @@ def rework_after(job):
     files = sorted(str(f) for f in (jd / "out").glob("*") if f.suffix.lower() in IMG_EXT)
     rep_f = jd / "report.md"
     grades = image_grades(rep_f.read_text("utf-8", errors="replace") if rep_f.is_file() else "", files)
-    bad = [f for f in files if grades[f]["grade"] == "C"]
+    gen, ok_by_hand = read_json_file(jd / "gen.json"), load_state().get("imgApproved") or {}
+    # 人工挑过的不返工；agent 自己已经返工 2 次（出过 3 版）的也不再返工，留给人挑
+    bad = [f for f in files if grades[f]["grade"] == "C" and f not in ok_by_hand
+           and not (isinstance(gen.get(Path(f).name), dict) and isinstance(gen[Path(f).name].get("retries"), int) and gen[Path(f).name]["retries"] >= 2)]
     if not bad:
         return None
     rows = read_json_file(jd / "recipe.json").get("rows") or []
@@ -1072,7 +1114,7 @@ MODEL_INFO = {"hair": "发色发型", "height": "身高体重", "ratio": "身材
 FACE_MODES = {
     "model": "换成我们的模特 library/models/{model}（按 SKILL.md 模式 C3「换成我们的模特」三步做：出图时换发型，衣服通过后贴真脸，再融合）",
     "ai": "出完后把脸换成一张不对应任何真人的普通面孔（按 SKILL.md 模式 C 的「换 AI 脸」做）",
-    "hide": "构图往下移或让手机挡住脸，成品里看不到眼睛和鼻子（按 SKILL.md 模式 C 的「不露脸」做）",
+    "hide": "构图往下移或让手机挡住脸，成品里看不到眼睛和鼻子，鼻尖露出一点也算不合格（按 SKILL.md 模式 C 的「不露脸」做）",
     "none": "参考图里没有人（挂拍、平铺、静物），成品也不要出现人；衣架、桌面、布料堆叠、光线和构图都按参考图",
 }
 MIN_PER_IMAGE = {"model": 7, "ai": 3, "hide": 3, "none": 3}
@@ -1156,6 +1198,7 @@ def lock_jobs_for(it):
         out.append({"dir": str(d), "name": d.name,
                     "images": sorted(str(p) for p in (d / "out").glob("*") if p.suffix.lower() in IMG_EXT),
                     "rejected": len([p for p in rej.glob("*") if p.suffix.lower() in IMG_EXT]) if rej.is_dir() else 0,
+                    "rejectedFiles": sorted(str(p) for p in rej.glob("*") if p.suffix.lower() in IMG_EXT) if rej.is_dir() else [],
                     "report": (d / "report.md").read_text("utf-8", errors="replace")[-6000:] if (d / "report.md").is_file() else "",
                     "recipe": read_json_file(d / "recipe.json"), "gen": read_json_file(d / "gen.json")})
     return out
@@ -1180,20 +1223,32 @@ def image_batch(path):
     return jobs / rel.parts[0] if len(rel.parts) == 3 and rel.parts[1] == "out" else None
 
 
+def rejected_image(path, st=None):
+    """出图检查没通过的图：工作台里驳回过的，或者放在锁图 jobs/<批次>/rejected/ 里的（agent 评 C 后挪进去的）。"""
+    st = st or load_state()
+    if path in (st.get("imgRejected") or {}):
+        return True
+    try:
+        rel = Path(path).expanduser().resolve().relative_to((lock_root() / "jobs").resolve())
+    except (ValueError, OSError, TypeError):
+        return False
+    return len(rel.parts) >= 3 and rel.parts[1] == "rejected"
+
+
 def check_batch_images(imgs):
     """写文案只能用同一批里合格的图：驳回的、评 C 的不能用；两批的图不能混在一篇。实拍图不受限。"""
     st = load_state()
     batches = set()
     for i, src in enumerate(imgs):
-        if src in (st.get("imgRejected") or {}):
-            raise ValueError("第 %d 张图已经驳回了，换一张" % (i + 1))
+        if rejected_image(src, st):
+            raise ValueError("第 %d 张图是驳回或出图检查没通过的图，换一张" % (i + 1))
         b = image_batch(src)
         if not b:
             continue
         batches.add(b)
         rep = b / "report.md"
         g = image_grades(rep.read_text("utf-8", errors="replace") if rep.is_file() else "", [src])[src]["grade"]
-        if g == "C":
+        if g == "C" and src not in (st.get("imgApproved") or {}):
             raise ValueError("第 %d 张图出图检查是 C（没通过），不能用" % (i + 1))
     batches = {(b.parent / read_json_file(b / "recipe.json")["reworkOf"]) if read_json_file(b / "recipe.json").get("reworkOf") else b for b in batches}
     if len(batches) > 1:
@@ -1245,7 +1300,10 @@ def item_view(it, rb, st):
     imgs = jobs[0]["images"] if jobs else []
     it["grades"] = {}
     for j in it["lockJobs"]:
-        it["grades"].update(image_grades(j["report"], j["images"]))
+        it["grades"].update(image_grades(j["report"], j["images"] + j["rejectedFiles"]))
+    for p, x in (st.get("imgApproved") or {}).items():
+        if p in it["grades"]:
+            it["grades"][p] = {"grade": "人工", "note": x.get("why") or "三次没过，人工挑的"}
     it["drafts"] = len([r for r in rb["reviews"] if any(str(x) in str(r.get("images")) for x in imgs)]) if imgs else 0
     running = [j for j in st["jobs"] if j.get("params", {}).get("item") == it["id"] and j["status"] in ("queued", "running")]
     it["busy"] = running[0]["kind"] if running else ""
@@ -1377,6 +1435,15 @@ def ref_style(path, st):
     return "other"
 
 
+HIDE_STREET = ("## 不露脸（街拍，必过）\n"
+               "街拍没有手机挡脸，回头、侧身、低头的动作最容易露出鼻子，所以按裁切来保证，不要指望重画时脸会自己避开：\n"
+               "1. 画面上沿切在下巴到嘴唇之间，最多露出嘴唇和下巴；鼻尖、鼻孔、眼睛、眉毛一点都不能进画面。\n"
+               "2. 素材图里头部占的位置高的，先把整个构图往下移（人在画面里往上推），再按 3:4 补齐画面，宁可少一点头顶上方的街景。\n"
+               "3. 每张出完先放大看脸部那一块：露出鼻子或眼睛直接评 C，不进 out。\n"
+               "4. 返工时直接把画面上沿往下裁，裁完再放大回 1080x1440；不要只改提示词重画同一个构图。\n"
+               "5. 侧脸剪影、头发挡住半张脸也不行，只要能看出鼻梁轮廓就算露脸。")
+
+
 STYLE_NOTES = {
     "mirror": "对镜自拍：成品要像本人举着手机对着镜子拍的。保留素材图里的镜子、手机、举手机的手和镜面反射；"
               "画面是手机镜头的透视和室内自然光，不要做成影棚大片；手机挡住或部分挡住脸。",
@@ -1402,6 +1469,9 @@ def lock_job_md(it, p, job_name):
     note = style_note(load_state(), p.get("style"))
     if note:
         extra = "风格：" + note + "\n\n" + extra
+    st = load_state()
+    if p["face"] == "hide" and (p.get("style") == "street" or any(ref_style(r, st) == "street" for r in p["refs"])):
+        extra += "\n\n" + HIDE_STREET
     if p["face"] == "model":
         extra += "\n\n## 模特\n脸和发型换成 library/models/%s（profile.md 和 face_* 照片）。衣服先按 C4 检查通过，再做贴脸和融合；脸按「检查」一节的对照表和她本人照片比。" % p["model"]
         extra += "\n\n" + model_card_md(p["model"])
@@ -1436,6 +1506,9 @@ def lock_prompt(p, job_name):
             + (("风格按任务单「补充要求」里写的「%s」来。" % all_styles(load_state())[p["style"]]) if style_note(load_state(), p.get("style")) else "")
             + ("每张成品出完，把生图用的模型名、seed（工具不给就写空字符串）、实际附上的每张参考图路径、返工次数记进 jobs/%s/gen.json，"
                "格式 {\"<文件名>\": {\"model\": \"\", \"seed\": \"\", \"attached\": [\"...\"], \"retries\": 0}}。" % job_name)
+            + ("没过检查的每一版都不要删，存进 jobs/%s/rejected/，文件名在表里的输出文件名后面加 _v1、_v2、_v3；"
+               "同一张最多出 3 版（第一次加返工 2 次），3 版都不过就停下不再返工，report.md 里这一张那行写「评级 C」和每版的问题，留给人挑。" % job_name)
+            + ("「不露脸」是必过项：按任务单里的不露脸要求裁切构图，成品里露出鼻子或眼睛就评 C，返工时直接把画面上沿往下裁。" if p["face"] == "hide" else "")
             + "我已经在工作台点了出图，这就是确认，不用再问我。生图额度用完时停下，在 report.md 写明做到哪一张。"
             + "全部完成后，最后一行只输出：{\"ok\":true,\"images\":<out 里的张数>}")
 
@@ -1945,7 +2018,7 @@ def api_state():
         "settings": st["settings"], "fashion": FASHION, "copyPresets": COPY_PRESETS,
         "personas": {k: {"name": v["name"], "desc": v["desc"]} for k, v in PERSONAS.items()}, "now": now_ms(),
         "lastPick": st.get("lastPick", {}), "cast": st.get("cast") or {}, "castLog": (st.get("castLog") or [])[-60:],
-        "imgRejected": st.get("imgRejected") or {}, "brake": st.get("brake") or {}, "colorFlags": st.get("colorFlags") or {}, "brakeLog": (st.get("brakeLog") or [])[-20:],
+        "imgRejected": st.get("imgRejected") or {}, "imgApproved": st.get("imgApproved") or {}, "brake": st.get("brake") or {}, "colorFlags": st.get("colorFlags") or {}, "brakeLog": (st.get("brakeLog") or [])[-20:],
         "nextSlot": {str(a["id"]): next_slot(st, a["id"]) for a in rb["accounts"]},
         # 定稿待排的每篇：按它那一款算（同款和别的号隔开）
         "nextSlotFor": {rid: next_slot(st, d["account_id"], item=d.get("item")) for rid, d in
@@ -2023,10 +2096,10 @@ def validate_draft(r, images=True):
     if images:
         if not r.get("images"):
             raise ValueError("至少需要 1 张本机图片")
-        rejected = load_state().get("imgRejected") or {}
+        st = load_state()
         for i, src in enumerate(r["images"]):
-            if src in rejected:
-                raise ValueError("第 %d 张图已经驳回了，去掉再定稿" % (i + 1))
+            if rejected_image(src, st):
+                raise ValueError("第 %d 张图是驳回或出图检查没通过的图，去掉再定稿" % (i + 1))
             image_path(src)
 
 
@@ -2372,6 +2445,7 @@ def r_image(body):
 
         def f(s):
             s.setdefault("imgRejected", {})[path] = {"to": str(dst), "at": now_ms(), "why": why}
+            (s.get("imgApproved") or {}).pop(path, None)
             for rid in hit:
                 s["ready"].pop(rid, None)
                 hold_schedule(s, rid, "用到的图被驳回了，换掉图再确认")
@@ -2387,6 +2461,22 @@ def r_image(body):
             shutil.move(rec["to"], path)
         mutate(lambda s: s["imgRejected"].pop(path, None))
         return {"ok": True}
+    if body["action"] == "approve":
+        # 三次都没过的版本都留在 rejected/ 里，人看过觉得能用就挑出来放回 out/，记下是人挑的
+        if not Path(path).is_file() or path in (st.get("imgRejected") or {}) or not rejected_image(path, st):
+            raise ValueError("只能挑这批 rejected 里留着的图")
+        jobs = lock_root() / "jobs"
+        batch = jobs / Path(path).resolve().relative_to(jobs.resolve()).parts[0]
+        if any(x.get("to") == path for x in (st.get("imgRejected") or {}).values()):
+            raise ValueError("这张是你自己驳回的，点「恢复」")
+        dst = batch / "out" / Path(path).name
+        if dst.exists():
+            dst = dst.with_name("%s_%s%s" % (dst.stem, uuid.uuid4().hex[:4], dst.suffix))
+        dst.parent.mkdir(exist_ok=True)
+        shutil.move(path, str(dst))
+        why = str(body.get("why") or "").strip()[:100] or "三次没过，人工挑的"
+        mutate(lambda s: s.setdefault("imgApproved", {}).__setitem__(str(dst), {"from": path, "at": now_ms(), "why": why}))
+        return {"ok": True, "path": str(dst)}
     raise ValueError("未知操作")
 
 
@@ -2421,8 +2511,8 @@ def r_review(body):
         imgs = body.get("images")
         if not isinstance(imgs, list) or not imgs or len(set(imgs)) != len(imgs) or any(x not in r["images"] for x in imgs):
             raise ValueError("图片只能从这篇原有的图里选，至少留 1 张")
-        rejected = load_state().get("imgRejected") or {}
-        if any(x in rejected for x in imgs):
+        st = load_state()
+        if any(rejected_image(x, st) for x in imgs):
             raise ValueError("驳回的图不能再用")
         update_draft(rid, images=imgs)
         mutate(lambda s: (s["ready"].pop(rid, None), imgs != r["images"] and hold_schedule(s, rid, "排期后图改过，要重新确认")))
