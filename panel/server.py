@@ -342,6 +342,8 @@ FASHION_RULES = ("女装合规：只用单品资料里的真实信息，不编�
                  "身材相关表述友善，不制造身材焦虑。"
                  "这些词标题、正文、评论里一个都不能出现：%s。" % "、".join(FASHION["riskErrors"]))
 COPY_GUIDE = HERE.parent / "references" / "copywriting.md"
+GAOSAKA_GUIDE = HERE.parent / "references" / "gaosaka-style.md"
+COPY_STYLES = {"gaosaka": "高坂风格 · 品牌主理人", "standard": "日常分享"}
 
 
 def item_facts(item):
@@ -365,7 +367,7 @@ def account_name(aid):
     return "%s号" % aid
 
 
-COPY_KEYS = {"position": "账号定位", "tone": "口吻", "must": "每篇必写", "banned": "不要用这些词", "tagMix": "话题配比"}
+COPY_KEYS = {"writeStyle": "写作风格", "position": "账号定位", "tone": "口吻", "must": "每篇必写", "banned": "不要用这些词", "tagMix": "话题配比"}
 # 三个号的文案设定预设（按主页风格整理），在「文案设定」一键套用后还能改
 COPY_PRESETS = {
     "the reels": {"position": "独立女装工作室的日常：一件衣服的面料、做工和版型讲透",
@@ -392,10 +394,20 @@ def banned_words(aid):
     return [w for w in re.split(r"[、,，\s]+", account_copy(aid)["banned"]) if w]
 
 
+def copy_style(aid):
+    return account_copy(aid)["writeStyle"] or "gaosaka"
+
+
 def copy_rules(aid):
     """文案设定（每个号设一次）写进给 AI 的指令。"""
     c = account_copy(aid)
-    return "\n".join("%s：%s。" % (COPY_KEYS[k], c[k]) for k in ("position", "tone", "must", "banned") if c[k])
+    lines = ["%s：%s。" % (COPY_KEYS[k], c[k]) for k in ("position", "tone", "must", "banned") if c[k]]
+    style = copy_style(aid)
+    lines.append("写作风格：%s。" % COPY_STYLES[style])
+    if style == "gaosaka":
+        # 将规则直接放进任务，避免后台任务只看到路径、没有实际采用风格。
+        lines.append(GAOSAKA_GUIDE.read_text("utf-8"))
+    return "\n".join(lines)
 
 
 def tag_rule(aid):
@@ -1079,7 +1091,8 @@ def write_prompt(p, st):
         ("额外要求：%s。" % p["note"]) if p.get("note") else "",
         ("下面是一篇对标笔记，只学它的结构和节奏（开头怎么抓人、分几段、每段讲什么、结尾怎么互动），"
          "不照抄句子，不用它的产品事实：\n<<<\n%s\n>>>" % p["ref"]) if p.get("ref") else "",
-        "每篇写 3 个不同方向的标题候选（身高或身材 + 痛点 / 场景 / 细节钩子），都 ≤18 字；title 用第 1 个。",
+        ("每篇写 3 个不同钩子的标题候选（材质细节 / 季节场景 / 克制判断；有真实开发或市场证据才使用故事或数字），以 6–18 字为主；title 用第 1 个。"
+         if copy_style(p["account"]) == "gaosaka" else "每篇写 3 个不同方向的标题候选（身高或身材 + 痛点 / 场景 / 细节钩子），都 ≤18 字；title 用第 1 个。"),
         tag_rule(p["account"]),
         "标题 ≤18 字，正文 ≤888 字，不用 Markdown 符号，不写 # 号和列表符号。" + FASHION_RULES,
         "写完把全部稿件存成一个 UTF-8 JSON 文件 %s，格式：" % p["outFile"],
@@ -1783,11 +1796,12 @@ def r_review(body):
         out = STUDIO / "work" / ("rewrite_%s.json" % jid)
         src = {"title": r["title"], "body": r["body"], "tags": r["tags"], "comment": r.get("comment", "")}
         prompt = ("按我的意见改写这篇女装小红书笔记。意见：%s。\n原稿（JSON）：%s\n"
-                  "%s标题 ≤18 字，正文 ≤888 字，不用 Markdown 符号，话题 8–10 个。%s\n"
+                  "%s\n标题 ≤18 字，正文 ≤888 字，不用 Markdown 符号。%s\n"
                   "置顶评论 comment ≤150 字，意见没提到就保持原样（原稿没有就补一条尺码答疑）。"
                   "改完存成 UTF-8 JSON 文件 %s，格式：{\"title\":\"\",\"titles\":[\"标题1\",\"标题2\",\"标题3\"],\"body\":\"\",\"tags\":[],\"comment\":\"\"}。不要发布。"
                   "最后一行只输出：{\"ok\":true}") % (body["note"], json.dumps(src, ensure_ascii=False),
-                                                ("写法参考 %s。" % COPY_GUIDE) if COPY_GUIDE.is_file() else "", FASHION_RULES, out)
+                                                "\n".join([("写法参考 %s。" % COPY_GUIDE) if COPY_GUIDE.is_file() else "",
+                                                           copy_rules(aid), item_facts(find_item(load_state(), r.get("item")) or {}), tag_rule(aid)]), FASHION_RULES, out)
         job = {"id": jid, "kind": "rewrite", "params": {"account": aid, "review": rid, "outFile": str(out)},
                "title": "改写「%s」" % r.get("title", ""), "prompt": prompt, "status": "queued", "createdAt": now_ms()}
         mutate(lambda s: s["jobs"].append(job))
@@ -1982,6 +1996,8 @@ def r_account(body):
 def r_account_copy(body):
     """文案设定：账号定位、口吻、每篇必写、禁用词、话题配比。"""
     need(body, "id")
+    if "writeStyle" in body and body["writeStyle"] not in COPY_STYLES:
+        raise ValueError("请选择高坂风格或日常分享")
 
     def f(s):
         for a in s["accounts"]:

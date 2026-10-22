@@ -546,6 +546,39 @@ class PanelTests(unittest.TestCase):
         self.assertTrue(done["trial"]["title"])
         self.assertEqual(len(self.m.load_state()["drafts"]), n)
 
+    def test_gaosaka_applies_to_write_trial_preview_and_rewrite(self):
+        it = self.m.r_item_save({"name": "亚麻衬衫", "fabric": "亚麻 100%"})["item"]
+        prompts = [self.m.r_job({"kind": kind, "params": {"account": "1", "item": it["id"],
+                    "images": [str(self.image)]}})["job"]["prompt"] for kind in ("write", "trial")]
+        prompts.append(self.m.r_prompt_preview({"account": "1", "item": it["id"]})["prompt"])
+        self.m.update_draft(self.rid, item=it["id"])
+        prompts.append(self.m.r_review({"account": "1", "id": self.rid, "action": "rewrite", "note": "更克制"})["job"]["prompt"])
+        for prompt in prompts:
+            for rule in ("高坂风格", "先讲事实，再解释价值", "不虚构亲历故事", "不主动联网补词", "亚麻 100%"):
+                self.assertIn(rule, prompt)
+            self.assertIn("UTF-8 JSON", prompt)
+            self.assertIn("18 字", prompt)
+        self.assertIn("材质细节 / 季节场景 / 克制判断", prompts[0])
+
+    def test_copy_style_persists_per_account_and_standard_keeps_original_hooks(self):
+        other = self.m.r_account({"name": "另一个号"})["account"]
+        self.m.r_account_copy({"id": "1", "writeStyle": "standard", "tone": "像朋友分享"})
+        it = self.m.r_item_save({"name": "衬衫"})["item"]
+        prompt = self.m.r_prompt_preview({"account": "1", "item": it["id"]})["prompt"]
+        self.assertIn("身高或身材 + 痛点", prompt)
+        self.assertIn("像朋友分享", prompt)
+        self.assertNotIn("高坂风格", prompt)
+        self.assertEqual(self.m.copy_style(other["id"]), "gaosaka")
+        self.assertEqual(self.m.api_state()["accounts"][0]["writeStyle"], "standard")
+        self.m.r_account_copy({"id": "1", "writeStyle": "gaosaka"})
+        self.assertIn("高坂风格", self.m.r_prompt_preview({"account": "1", "item": it["id"]})["prompt"])
+
+    def test_invalid_copy_style_does_not_change_settings(self):
+        before = self.m.account_copy("1")
+        with self.assertRaises(ValueError):
+            self.m.r_account_copy({"id": "1", "writeStyle": "unknown", "tone": "不应保存"})
+        self.assertEqual(self.m.account_copy("1"), before)
+
     def test_67_reference_styles_and_mirror_job(self):
         root, it = self.lock_setup()
         png = self.image.read_bytes()
