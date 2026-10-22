@@ -51,6 +51,14 @@ RISK_ERRORS = ["最好", "第一", "绝对", "最佳", "顶级", "极致", "首�
 RISK_WARNS = ["显瘦", "封神", "闭眼入", "天花板", "必买", "必入", "断货", "爆款", "yyds", "绝绝子"]
 FASHION["riskErrors"] = list(dict.fromkeys(RISK_ERRORS + FASHION.get("riskErrors", [])))
 FASHION["riskWarns"] = list(dict.fromkeys(RISK_WARNS + FASHION.get("riskWarns", [])))
+# AI 腔：一眼像机器写的词和句式。只提醒不拦，写稿时也让 AI 自己避开
+AI_TONE_WORDS = ["家人们", "宝子们", "谁懂啊", "狠狠拿捏", "氛围感拉满", "高级感", "松弛感", "被问爆了", "我宣布", "建议所有人",
+                 "不允许还有人不知道", "直击灵魂", "视觉盛宴", "宝藏", "这谁顶得住"]
+AI_TONE_PATTERNS = [["不是[^，。！？\n]{1,12}[，,]?而是", "不是……而是……"], ["与其说[^，。！？\n]{1,12}[，,]?不如说", "与其说……不如说……"],
+                    ["这才是[^，。！？\n]{1,12}该有的样子", "这才是……该有的样子"], ["看似[^，。！？\n]{1,12}[，,]?其实", "看似……其实……"],
+                    ["表面[^，。！？\n]{0,12}[，,]?(?:背后|其实)", "表面……背后……"], ["原来真正的", "原来真正的……"],
+                    ["总而言之|综上所述|总的来说", "总结腔"]]
+FASHION["aiTone"] = {"words": AI_TONE_WORDS, "patterns": AI_TONE_PATTERNS}
 IMG_EXT = {".png", ".jpg", ".jpeg", ".webp", ".heic"}
 DEMO = False
 LOCK = threading.RLock()
@@ -260,7 +268,7 @@ def read_data():
         if r["status"] != "已发布":
             r["clash"] = draft_clash(st, r, names)
     archive = sorted(({"account_id": v["account"], "title": v["title"], "at": v["at"], "shot": v.get("shot", ""),
-                       "review": k, "ai": v.get("ai"),
+                       "review": k, "ai": v.get("ai"), "noteUrl": v.get("noteUrl", ""),
                        "published_at": fmt_ms(v["at"]) + ("（交给小红书定时）" if v.get("platform") else "")}
                       for k, v in st["published"].items()), key=lambda x: x["at"], reverse=True)[:60]
     return {"accounts": accounts, "reviews": reviews, "archive": archive}
@@ -371,6 +379,10 @@ FASHION_RULES = ("女装合规：只用单品资料里的真实信息，不编�
                  "不出现 大牌同款、平替、一比一、高仿、原单、专柜 等字样；不用 绝对、第一、最好、永不起球 这类极限词；"
                  "身材相关表述友善，不制造身材焦虑。"
                  "这些词标题、正文、评论里一个都不能出现：%s。" % "、".join(FASHION["riskErrors"]))
+AI_TONE_RULE = ("不要 AI 腔：不用这些词：%s；不用这些句式：%s。"
+                "写完先自己通读一遍去 AI 味再存文件：删掉套话、翻译腔、三连排比和空洞的总结句，换成具体的上身感受和细节；"
+                "3 个标题句式要各不相同，像真人随口说的，不像正文摘要。"
+                % ("、".join(AI_TONE_WORDS), "、".join(x[1] for x in AI_TONE_PATTERNS)))
 COPY_GUIDE = HERE.parent / "references" / "copywriting.md"
 GAOSAKA_GUIDE = HERE.parent / "references" / "gaosaka-style.md"
 COPY_STYLES = {"gaosaka": "高坂风格 · 品牌主理人", "standard": "日常分享"}
@@ -858,8 +870,10 @@ def publish_one(entry):
             if tags.get("plain"):
                 step("这些话题平台上没有完全一样的，按文字留着：%s" % "、".join(tags["plain"]))
             step("发布成功")
+            note_url = (data or {}).get("noteUrl") or ""
+            step("在「笔记管理」核对到了这篇：%s" % note_url if note_url else "没核对到笔记链接（不影响已发出），到创作中心「笔记管理」看一眼")
             rec = {"account": aid, "title": r["title"], "at": now_ms(), "entry": entry["id"],
-                   "shot": (data or {}).get("shot", ""), "ai": "--ai" in args}
+                   "shot": (data or {}).get("shot", ""), "ai": "--ai" in args, "noteUrl": note_url}
 
             def done(s):
                 s["published"][rid] = rec
@@ -1549,6 +1563,7 @@ def write_prompt(p, st):
          if copy_style(p["account"]) == "gaosaka" else "每篇写 3 个不同方向的标题候选（身高或身材 + 痛点 / 场景 / 细节钩子），都 ≤18 字；title 用第 1 个。"),
         tag_rule(p["account"]),
         "标题 ≤18 字，正文 ≤888 字，不用 Markdown 符号，不写 # 号和列表符号。" + FASHION_RULES,
+        AI_TONE_RULE,
         "写完把全部稿件存成一个 UTF-8 JSON 文件 %s，格式：" % p["outFile"],
         '{"drafts":[{"title":"入审用的标题","titles":["标题1","标题2","标题3"],"body":"正文","tags":["话题1","话题2"],"comment":"置顶评论","images":["本篇用的图片绝对路径，第一张是封面"]}]}',
         "每篇另写一条 ≤150 字的置顶评论（comment）：再写一次模特身高体重和穿的码，按 2–3 种身材给选码建议，最后一句请大家报身高体重来问码。",
@@ -2525,12 +2540,12 @@ def r_review(body):
         out = STUDIO / "work" / ("rewrite_%s.json" % jid)
         src = {"title": r["title"], "body": r["body"], "tags": r["tags"], "comment": r.get("comment", "")}
         prompt = ("按我的意见改写这篇女装小红书笔记。意见：%s。\n原稿（JSON）：%s\n"
-                  "%s\n标题 ≤18 字，正文 ≤888 字，不用 Markdown 符号。%s\n"
+                  "%s\n标题 ≤18 字，正文 ≤888 字，不用 Markdown 符号。%s\n%s\n"
                   "置顶评论 comment ≤150 字，意见没提到就保持原样（原稿没有就补一条尺码答疑）。"
                   "改完存成 UTF-8 JSON 文件 %s，格式：{\"title\":\"\",\"titles\":[\"标题1\",\"标题2\",\"标题3\"],\"body\":\"\",\"tags\":[],\"comment\":\"\"}。不要发布。"
                   "最后一行只输出：{\"ok\":true}") % (body["note"], json.dumps(src, ensure_ascii=False),
                                                 "\n".join([("写法参考 %s。" % COPY_GUIDE) if COPY_GUIDE.is_file() else "",
-                                                           copy_rules(aid), item_facts(find_item(load_state(), r.get("item")) or {}), tag_rule(aid)]), FASHION_RULES, out)
+                                                           copy_rules(aid), item_facts(find_item(load_state(), r.get("item")) or {}), tag_rule(aid)]), FASHION_RULES, AI_TONE_RULE, out)
         job = {"id": jid, "kind": "rewrite", "params": {"account": aid, "review": rid, "outFile": str(out)},
                "title": "改写「%s」" % r.get("title", ""), "prompt": prompt, "status": "queued", "createdAt": now_ms()}
         mutate(lambda s: s["jobs"].append(job))
