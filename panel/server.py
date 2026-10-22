@@ -43,7 +43,7 @@ HERE = Path(__file__).resolve().parent
 HOME = Path.home()
 STUDIO = Path(os.environ.get("XHS_STUDIO_HOME", str(HOME / ".xhs-studio")))
 # 各店自己的场景/身材/类目设置放 fashion.json（不进仓库）；没有就用仓库里的示例
-FASHION_FILE = HERE / "fashion.json" if (HERE / "fashion.json").exists() else HERE / "fashion.example.json"
+FASHION_FILE = Path(os.environ.get("XHS_FASHION_FILE") or (HERE / "fashion.json" if (HERE / "fashion.json").exists() else HERE / "fashion.example.json"))
 FASHION = json.loads(FASHION_FILE.read_text("utf-8"))
 IMG_EXT = {".png", ".jpg", ".jpeg", ".webp", ".heic"}
 DEMO = False
@@ -1037,7 +1037,8 @@ def topics_prompt(p, st):
     lines += [
         "每条标上场景和身材：场景从 %s 里选，身材从 %s 里选。" % ("、".join(FASHION["scenes"]), "、".join(FASHION["bodies"])),
         ("优先补这些还空着的格子：%s。" % "、".join(gaps[:12])) if gaps and not it else "",
-        ("这批选题围绕「%s」（%s），提前 2–3 周发。" % (node["name"], node["md"])) if node else "",
+        ("这批选题围绕「%s」（%s），提前 2–3 周发。" % (node["name"], node["md"])) if node
+        else ("这批选题围绕「%s」，提前 2–3 周发。" % p["node"]) if p.get("node") else "",
         ("不要和这些已有选题、已发标题撞题：%s。" % "；".join(have)) if have else "",
         "每条 ≤25 字，是一篇笔记要回答的那个问题或钩子，比如「160 小个子冬天穿长外套怎么不显矮」，不要标题党。" + FASHION_RULES,
         "写成 UTF-8 JSON 文件 %s，格式：" % p["outFile"],

@@ -1,10 +1,14 @@
 """隔离回归：python3 -m unittest discover -s <panel目录> -p test_server.py -v"""
 import importlib.util
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+
+# 测试固定用仓库里的示例设置，不受各店自己 fashion.json 的影响
+os.environ["XHS_FASHION_FILE"] = str(Path(__file__).with_name("fashion.example.json"))
 
 
 class PanelTests(unittest.TestCase):
