@@ -312,6 +312,33 @@ details summary{cursor:pointer}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}.dot{animation:none}}
 
 .panel > .stack:has(> .actions:last-child){padding-bottom:0}
+
+/* 向导：开局清单 / 下一步条、按钮说明模式、帮助搜索 */
+.headtools{display:flex;gap:8px;flex-shrink:0}
+.headtools button[aria-pressed="true"]{background:var(--info-soft);color:var(--info);border-color:transparent}
+.guide{margin-bottom:14px}
+.nextbar{display:flex;align-items:center;justify-content:space-between;gap:12px;border-radius:var(--r);padding:10px 14px;background:var(--info-soft);color:var(--ink2);font-size:13px}
+.nextbar b{color:var(--info)}
+.nextbar.done{background:var(--good-soft)}.nextbar.done b{color:var(--good)}
+.starter{background:var(--card);border-radius:var(--r2);box-shadow:var(--shadow);padding:14px 16px}
+.starter .h{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.starter ol{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.starter li{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:8px;align-items:center;padding:6px 8px;border-radius:8px;font-size:13px;color:var(--muted)}
+.starter li .ck{width:18px;height:18px;border-radius:50%;border:1.5px solid var(--line);display:grid;place-items:center;font-size:11px}
+.starter li.ok .ck{background:var(--good);border-color:var(--good);color:#fff}
+.starter li.ok span.t{text-decoration:line-through}
+.starter li.cur{background:var(--info-soft);color:var(--ink)}
+.starter li.cur .ck{border-color:var(--info)}
+body.explain .app [data-do],body.explain .app [data-tab],body.explain #aiBtn,body.explain #btnSettings,body.explain #online{outline:1.5px dashed var(--info);outline-offset:2px;cursor:help}
+#helpBubble{position:fixed;z-index:30;max-width:300px;background:var(--ink);color:var(--paper);font-size:13px;line-height:1.6;padding:10px 12px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+#helpBubble b{display:block;margin-bottom:2px}
+#helpBubble .w{opacity:.7;font-size:12px;margin-top:4px}
+.hres{display:grid;gap:6px;max-height:50vh;overflow:auto}
+.hres button{text-align:left;display:block;width:100%;white-space:normal;min-width:0;padding:8px 10px;border-radius:8px;background:var(--soft2);border:1px solid var(--line)}
+.hres button b{display:block;font-size:13px}.hres button span{display:block;font-size:12px;color:var(--muted);line-height:1.6}
+.flash{animation:flash 1.6s ease 2}
+@keyframes flash{0%,100%{box-shadow:none}50%{box-shadow:0 0 0 4px var(--info)}}
+@media (max-width:760px){.nextbar{flex-direction:column;align-items:flex-start}}
 </style>
 </head>
 <body>
@@ -326,7 +353,9 @@ details summary{cursor:pointer}
     </div>
   </aside>
   <section class="main">
-    <div class="pagehead"><div><div class="crumb" id="crumb"></div><h1 id="ptitle"></h1><p class="pdesc" id="pdesc"></p></div></div>
+    <div class="pagehead"><div><div class="crumb" id="crumb"></div><h1 id="ptitle"></h1><p class="pdesc" id="pdesc"></p></div>
+      <div class="headtools"><button type="button" class="ghost" id="btnHelp">搜帮助</button><button type="button" class="ghost" id="btnExplain" aria-pressed="false" title="打开后点任何按钮只看说明，不会执行">？按钮说明</button></div></div>
+    <div id="guide"></div>
     <nav class="subm" id="subm" aria-label="子页"></nav>
     <div id="health"></div>
     <main id="page"></main>
@@ -334,6 +363,7 @@ details summary{cursor:pointer}
 </div>
 <dialog id="dlg"><form method="dialog" id="dlgForm" class="stack"></form></dialog>
 <div class="toast" id="toast" hidden></div>
+<div id="helpBubble" hidden></div>
 <input type="file" id="photoFile" accept="image/*" hidden>
 <input type="file" id="refFile" accept="image/*" multiple hidden>
 <input type="file" id="realFile" accept="image/*" multiple hidden>
@@ -527,11 +557,13 @@ function render() {
   if (!D.publisherOk) h.push('<div class="notice bad"><b>找不到发布脚本</b>（xhs-autopilot/publisher/xhs_publish.py）。发布用不了。</div>');
   if (!D.codex) h.push('<div class="notice bad"><b>找不到 codex 命令行。</b>出图和写文案用不了，到“设置 › 高级”里填它的路径。</div>');
   $('#health').innerHTML = h.length ? `<div class="stack" style="margin-bottom:14px">${h.join('')}</div>` : '';
+  $('#guide').innerHTML = `<div class="guide">${renderGuide()}</div>`;
   const ae = document.activeElement;
   if (ae && ae.closest && ae.closest('#page') && ['INPUT', 'TEXTAREA', 'SELECT'].includes(ae.tagName) && ae.type !== 'checkbox' && ae.type !== 'radio') return;
   const sub = UI.sub[UI.tab];
   $('#page').innerHTML = ({img: pageImg, copy: pageCopy, pub: pagePub, hist: pageHist})[UI.tab](sub);
   bindDrops();
+  addTitles();
   const tb = $('#rBody'); if (tb) tb.oninput = () => { $('#bodyCount').textContent = `${len(tb.value)} / 888`; };
 }
 
@@ -1297,6 +1329,233 @@ document.addEventListener('change', e => {
   if (t.id === 'trialItem') W.trialItem = t.value;
   if (t.dataset && t.dataset.refstyle) api('/api/ref/style', {path: t.dataset.refstyle, style: t.value}).then(j => j && toast('已移到「' + D.styles[t.value] + '」'));
 });
+// ================================================================ 向导：开局清单、下一步、按钮说明、帮助搜索
+// 每个按钮：[名字, 干什么 / 点了会怎样, 在哪一页]
+const HELP = {
+  addItem: ['上新一款', '拖进这款衣服的正面照和吊牌照，AI 读吊牌建好资料。', 'img.info'],
+  editItem: ['编辑全部资料', '改这款的名称、款号、尺码、面料、卖点等全部资料。', 'img.info'],
+  pickItem: ['选一款衣服', '左边列表点一款，右边显示这款的资料和图。', 'img.info'],
+  saveInfo: ['保存资料', '保存材质手感、痛点、模特尺码等。第一次填好材质和痛点，AI 会给这款出 5 条选题。', 'img.info'],
+  spec: ['让 AI 按照片写档案', 'AI 看照片写出颜色、材质、领型、扣子等出图时要锁住的细节，大约 3–5 分钟。照片换了就再点一次。', 'img.info'],
+  addCheck: ['加一条检查要点', '自己补一条出图时必须对上的细节，比如“袖口是罗纹”。', 'img.info'],
+  delCheck: ['删掉检查要点', '删掉这一条，出图时不再检查它。', 'img.info'],
+  viewSpec: ['看完整档案', '看 AI 写的完整档案原文。', 'img.info'],
+  confirmSpec: ['已核对，去出图', '检查要点核对完了，跳到「出图」。', 'img.info'],
+  addPiece: ['这是套装，再加一件', '成套卖的（上衣配半裙等），每件单独放照片，最多 4 件。', 'img.info'],
+  renameMain: ['改名', '给套装里的这件改个名字。', 'img.info'],
+  renamePiece: ['改名', '给套装里的这件改个名字。', 'img.info'],
+  delPiece: ['删掉这件', '从套装里去掉这一件。加减件后要重写档案。', 'img.info'],
+  addReal: ['加实拍图', '放自己拍的真人图，可以和 AI 图混着发。', 'img.result'],
+  delReal: ['移除实拍图', '这张实拍图不再用。', 'img.info'],
+  style: ['选风格', '对镜自拍、街拍或自己建的风格组，参考图会跟着换。', 'img.shoot'],
+  pickRef: ['选参考图', '勾几张想模仿的参考图，一张参考图出一张图。', 'img.shoot'],
+  pickModel: ['选模特', '这款由谁来穿。', 'img.shoot'],
+  lock: ['开始出图', '把选好的参考图、模特和衣服交给 AI 出图。一张大约 5–8 分钟，出完会自己检查。', 'img.shoot'],
+  lockRest: ['没问题，出剩下的', '试出的那 1 张看过没问题，接着出剩下的。', 'img.result'],
+  multiShoot: ['给几个号各出一组', '同一款要发几个号时，每个号按自己的拍法各出一组，图不重复。', 'img.shoot'],
+  unlockCast: ['解锁换人', '这款在这个号已经固定了模特，点这里才能换人。换人会留记录。', 'img.shoot'],
+  castLog: ['改动记录', '看这款换过几次模特、谁换的。', 'img.shoot'],
+  cancelJob: ['停止', '停掉这个正在跑的 AI 任务。', 'hist.ai'],
+  log: ['看过程', '看 AI 这件事做了什么、卡在哪。', 'hist.ai'],
+  pickImg: ['选图', '勾上要用的图，第 1 张是封面。', 'img.result'],
+  imgApprove: ['用这张', 'AI 检查没过的图，你看着能用就点它，放回能选的图里。', 'img.result'],
+  imgInfo: ['参数 / 这批的配方', '看这张图是用哪张参考图、哪个模特、什么要求出的。', 'img.result'],
+  imgReject: ['驳回', '这张图不能用。写文案选不到它，已经用了它的稿会退回待审。', 'img.result'],
+  imgRestore: ['恢复', '把驳回的图恢复回来。', 'img.result'],
+  report: ['看出图报告', '看 AI 对每张图的检查结果和评级。', 'img.result'],
+  toWrite: ['写文案', '用选中的图去写稿。', 'img.result'],
+  newModel: ['新模特', '建一张模特资料卡：正脸、左侧脸、右侧脸、全身 4 张，再写身高体重。', 'img.lib'],
+  modelPhoto: ['模特照片位', '点一下上传或替换这个角度的照片。', 'img.lib'],
+  saveModel: ['保存模特资料', '保存发色、身高体重、身材比例。出图时会写进任务单。', 'img.lib'],
+  newGroup: ['新建一组风格', '自己加一组拍法，比如「书桌房间」，再往里放参考图。', 'img.lib'],
+  editGroup: ['改名和说明', '改这组风格的名字和给 AI 的一句话。', 'img.lib'],
+  delGroup: ['删掉这组', '删掉这组风格（里面的参考图会移到「其他」）。', 'img.lib'],
+  uploadRef: ['上传参考图', '把刷到想模仿的图放进这一组，出图时选这个风格就会带上。', 'img.lib'],
+  delRef: ['移除参考图', '这张参考图不再用。', 'img.lib'],
+  genTopics: ['AI 联网出 10 条', 'AI 上网看最近的热门，给这个号出 10 条选题，放进选题库。', 'copy.topic'],
+  addTopic: ['加入', '把自己想的选题加进选题库。', 'copy.topic'],
+  useTopic: ['写这条', '用这条选题去写稿，会自动标成已用。', 'copy.topic'],
+  unuseTopic: ['标回没用', '这条选题还没真用上，放回没用过的里。', 'copy.topic'],
+  delTopic: ['删掉选题', '从选题库删掉这一条。', 'copy.topic'],
+  write: ['交给 AI 写', 'AI 按选好的图和选题写稿，写好放进「审稿」，不会自动发。', 'copy.write'],
+  pickReview: ['选一篇稿', '左边点一篇，右边审它。', 'copy.review'],
+  rewrite: ['让 AI 改', '在左边框里说一句怎么改，AI 照着改这篇。', 'copy.review'],
+  quickRw: ['快捷改稿', '常用的改法一键交给 AI，比如更口语、更短。', 'copy.review'],
+  paste: ['粘贴 GPT 写的', '在别处写好的文案粘进来，自动拆成标题、正文和话题。', 'copy.review'],
+  saveDraft: ['保存', '保存改动，稿还留在审稿里。', 'copy.review'],
+  reject: ['驳回', '这篇不要了，进「历史记录 › 没发出 / 驳回」，以后可以改了再审。', 'copy.review'],
+  delDraft: ['删除', '彻底删掉这篇稿。', 'copy.review'],
+  finalize: ['文案定稿，去发布', '这篇改好了，交给「发布」排时间。红色问题要先改掉才能点。', 'copy.review'],
+  dropClash: ['去掉撞车的图', '这几张图别的号已经用过，去掉免得重复。', 'copy.review'],
+  dropRejected: ['去掉驳回的图', '把已经驳回的图从这篇去掉。', 'copy.review'],
+  editRejected: ['改了再审', '把驳回的稿拿回「审稿」重新改。', 'hist.fail'],
+  preset: ['套用预设', '一键填上这个号的定位、口吻等文案设定，之后还能改。', 'copy.set'],
+  saveCopy: ['保存设定', '保存账号定位、口吻、必写内容和禁用词，之后每篇都按这个写。', 'copy.set'],
+  pickLogo: ['换一张 logo', '换封面上用的 logo 图。', 'copy.set'],
+  trial: ['按现在的设定试写', '用一件新款试写一篇看口吻对不对，不进审稿。', 'copy.set'],
+  pickPub: ['选一篇定稿', '左边点一篇，右边调封面和时间。', 'pub.queue'],
+  img: ['设为封面 / 挪位置 / 不用这张', '调整发布时图片的顺序，第 1 张是封面。', 'pub.queue'],
+  when: ['选发布时间', '选一个推荐时间，或者自己定。到点工作台开浏览器直接发。', 'pub.queue'],
+  tryFill: ['只填不发试一次', '打开发布页把标题、正文、图片都填好，但不点发布，给你截图看对不对。第一次发之前一定试一次。', 'pub.queue'],
+  approve: ['确认排期', '定好时间。到点工作台自己发，Mac 要开着、工作台要开着。', 'pub.queue'],
+  backToCopy: ['文案还要改', '退回「审稿」再改。', 'pub.queue'],
+  copyComment: ['复制置顶评论', '复制好，发出去后到 App 里贴到评论区并置顶。', 'pub.queue'],
+  package: ['导出发布包', '把图和文案导出到一个文件夹，自己在 App 里手动发。', 'pub.queue'],
+  unsched: ['取消排期', '这篇先不发了，回到「待发布」里可以重新排。', 'pub.queue'],
+  pauseAll: ['全部暂停', '所有号都先不发。遇到验证码、账号异常时先点它，处理好再点「恢复发布」。', 'pub.cal'],
+  resumeBrake: ['恢复发布', '问题处理好了，到点的稿接着发。', 'pub.cal'],
+  wk: ['上一周 / 本周 / 下一周', '翻排期日历。', 'pub.cal'],
+  calMode: ['只看这个号 / 全部号', '切换只看当前号，还是整个矩阵哪天谁发什么。', 'pub.cal'],
+  slot: ['一条排期', '看这条排期的详情和发布过程。', 'pub.cal'],
+  login: ['扫码登录', '打开小红书登录页，用手机 App 扫码。扫好点「我扫好了」。', 'pub.login'],
+  checkLogin: ['我扫好了', '扫完码点它，工作台确认登录成功。', 'pub.login'],
+  renameAcc: ['改名', '改这个号在工作台里显示的名字。', 'pub.login'],
+  addAcc: ['加一个号', '写名字、选人设，拍法、封面和文案口吻一次填好。新注册的号前几周会自动少排几篇。', 'pub.login'],
+  reschedule: ['重新排期', '没发出去的稿重新选个时间。', 'hist.fail'],
+  goItem: ['去填', '跳到这款的资料页。', 'img.info'],
+  goSub: ['去看', '跳到对应的页面。', ''],
+  goLogin: ['去登录', '跳到「发布 › 账号登录」。', 'pub.login'],
+};
+const SPECIAL = {aiBtn: ['AI 任务', '正在跑的 AI 任务。点开看进度，失败了看原因。', 'hist.ai'], btnSettings: ['设置', '锁图工作台位置、codex 路径、错过多久不补发等。', ''],
+  online: ['小红书登录状态', '绿点是已登录。没登录点这里去扫码。', 'pub.login'], btnHelp: ['搜帮助', '输入关键词（比如“验证码”“换封面”），找到说明，点一下跳过去。', ''],
+  btnExplain: ['按钮说明', '打开后点任何按钮只看说明不执行；再点一次关掉。', '']};
+const FAQ = [
+  ['发布弹验证码 / 账号异常', '先到「发布 › 排期日历」点「全部暂停」，到小红书 App 或浏览器里把验证做完，再点「恢复发布」。', 'pub.cal'],
+  ['显示小红书未登录 / 登录过期', '到「发布 › 账号登录」点「扫码登录」，用手机扫码后点「我扫好了」。', 'pub.login'],
+  ['到点没发出去', 'Mac 要开机、别合盖、工作台要开着。错过 30 分钟以上不补发，到「历史记录 › 没发出 / 驳回」点「重新排期」。', 'hist.fail'],
+  ['第一次发之前怎么检查', '在「发布 › 待发布」点「只填不发试一次」，看截图没问题再「确认排期」。', 'pub.queue'],
+  ['怎么换封面 / 调图片顺序', '在「发布 › 待发布」里，图片下面点「设为封面」或左右箭头。', 'pub.queue'],
+  ['出图人脸不对 / 模特不像', '到「产品图 › 模特和参考图库」补齐模特的正脸、左侧脸、右侧脸、全身 4 张。', 'img.lib'],
+  ['每个号用固定模特', '到「产品图 › 模特和参考图库」的「每个号固定用谁」里选。', 'img.lib'],
+  ['AI 任务失败了', '点左下角的 AI 任务看原因，或者到「历史记录 › AI 任务」点「看过程」。', 'hist.ai'],
+  ['出图说找不到锁图工作台', 'xhs-lock-studio 没装，或者位置不对。到「设置 › 高级」填它的文件夹位置。', ''],
+  ['加一个新号（街拍号、测评号）', '到「发布 › 账号登录」最下面写名字、选人设，点「加一个号」。', 'pub.login'],
+  ['AI 标注要不要勾', '默认勾上；全是实拍图的可以不勾。在「发布 › 待发布」确认排期前改。', 'pub.queue'],
+  ['文案口吻不对', '到「文案 › 文案设定」改账号定位和口吻，右边可以试写一篇看看。', 'copy.set'],
+];
+const pageName = k => { if (!k) return ''; const [t, s] = k.split('.'); const T = TABS.find(x => x[0] === t); const S = (subsOf(t) || []).find(x => x[0] === s); return T ? `${T[2]}${S ? ' › ' + S[1].replace(/（\d+）$/, '') : ''}` : ''; };
+
+// 开局 5 步：每台新电脑 / 新号都走一遍；做完自动收起
+const G = {hide: false, tried: false};
+try { Object.assign(G, JSON.parse(localStorage.getItem('xhs-studio-guide') || '{}')); } catch (e) {}
+const saveG = () => { try { localStorage.setItem('xhs-studio-guide', JSON.stringify(G)); } catch (e) {} };
+function starterSteps() {
+  const a = acc() || {};
+  return [
+    ['扫码登录小红书', a.online, 'pub', 'login'],
+    ['设好这个号的文案口吻', !!String(a.position || '').trim(), 'copy', 'set'],
+    ['建一张齐全的模特资料卡（正脸 / 左侧 / 右侧 / 全身）', D.lock.models.some(m => !(m.missing || []).length), 'img', 'lib'],
+    ['给这个号固定一个模特', !!a.cast, 'img', 'lib'],
+    ['拿 1 款衣服走一遍，发之前点「只填不发试一次」', G.tried || D.reviews.some(r => r.status === '已发布'), 'pub', 'queue'],
+  ];
+}
+// 平时的「下一步」：按流程从前往后找第一件要人做的事
+function nextStep() {
+  const a = acc(), R = mine(D.reviews), items = myItems(), st = D.stats[String(UI.acc)] || {};
+  if (!a) return ['先加一个小红书号', '去加号', {tab: 'pub', sub: 'login'}];
+  if (!a.online) return [`「${a.name}」还没登录小红书`, '去扫码', {tab: 'pub', sub: 'login'}];
+  if (st.failed) return [`有 ${st.failed} 篇没发出去`, '去看', {tab: 'hist', sub: 'fail'}];
+  const todo = R.filter(r => draftState(r) === 'todo').length;
+  if (todo) return [`${todo} 篇稿等你审`, '去审稿', {tab: 'copy', sub: 'review'}];
+  const ready = R.filter(r => draftState(r) === 'ready').length;
+  if (ready) return [`${ready} 篇定稿了还没排时间`, '去排期', {tab: 'pub', sub: 'queue'}];
+  const idle = items.filter(i => !i.busy);
+  const fix = idle.find(i => ['缺正面图', '待写档案', '档案待核对'].includes(i.stage));
+  if (fix) return [`「${fix.name}」${fix.stage}`, '去补', {item: fix.id, tab: 'img', sub: 'info'}];
+  const shoot = idle.find(i => i.stage === '待出图');
+  if (shoot) return [`「${shoot.name}」资料齐了，可以出图`, '去出图', {item: shoot.id, tab: 'img', sub: 'shoot'}];
+  const done = idle.find(i => i.stage === '图已出好' && !R.some(r => r.item === i.id));
+  if (done) return [`「${done.name}」的图出好了，挑图写文案`, '去挑图', {item: done.id, tab: 'img', sub: 'result'}];
+  if (activeJobs().length) return ['AI 正在干活，做完会出现在对应的页面', '看进度', {tab: 'hist', sub: 'ai'}];
+  return ['手上的都处理完了，可以上新下一款', '上新一款', {add: true}];
+}
+function renderGuide() {
+  const steps = starterSteps(), left = steps.filter(s => !s[1]).length;
+  if (left && !G.hide) {
+    const cur = steps.findIndex(s => !s[1]);
+    return `<div class="starter"><div class="h"><b>开局 5 步 · 还剩 ${left} 步</b><button type="button" class="link" data-g="hide">收起</button></div><ol>${steps.map(([t, ok, tab, sub], i) =>
+      `<li class="${ok ? 'ok' : i === cur ? 'cur' : ''}"><span class="ck">${ok ? '✓' : i + 1}</span><span class="t">${esc(t)}</span>${ok ? '' : `<button type="button" class="${i === cur ? 'primary' : 'ghost'}" data-g="go" data-tab="${tab}" data-sub="${sub}">去做</button>`}</li>`).join('')}</ol></div>`;
+  }
+  const [t, btn, to] = nextStep(), fin = !!to.add;
+  return `<div class="nextbar ${fin ? 'done' : ''}"><span><b>下一步</b>　${esc(t)}${left ? ` <button type="button" class="link" data-g="show">（开局还剩 ${left} 步）</button>` : ''}</span>
+    <button type="button" class="primary" data-g="${fin ? 'add' : 'go'}" data-tab="${to.tab || ''}" data-sub="${to.sub || ''}" data-item="${esc(to.item || '')}">${esc(btn)} →</button></div>`;
+}
+document.addEventListener('click', e => {
+  const g = e.target.closest('[data-g]'); if (!g || document.body.classList.contains('explain')) return;
+  e.stopPropagation();
+  const k = g.dataset.g;
+  if (k === 'hide' || k === 'show') { G.hide = k === 'hide'; saveG(); render(); return; }
+  if (k === 'add') { go('img', 'info'); setTimeout(() => { const b = document.querySelector('[data-do="addItem"]'); if (b) b.click(); }, 0); return; }
+  if (g.dataset.item) UI.item = g.dataset.item;
+  go(g.dataset.tab, g.dataset.sub);
+}, true);
+
+// 按钮说明：打开后点按钮只弹说明，不执行
+function helpOf(el) {
+  if (el.id && SPECIAL[el.id]) return SPECIAL[el.id];
+  if (el.dataset.g) return ['向导', el.dataset.g === 'hide' ? '收起开局清单，下一步条还在。' : '跳到要做的那一页。', ''];
+  if (el.dataset.do && HELP[el.dataset.do]) return HELP[el.dataset.do];
+  if (el.dataset.tab) {
+    const k = el.dataset.tab + '.' + (el.dataset.sub || (subsOf(el.dataset.tab) || [[]])[0][0]);
+    return [el.dataset.sub ? pageName(k) : (TABS.find(t => t[0] === el.dataset.tab) || [])[2], DESC[k] || '', ''];
+  }
+  return null;
+}
+function bubble(el, h) {
+  const b = $('#helpBubble');
+  b.innerHTML = `<b>${esc(h[0])}</b>${esc(h[1] || '点了会直接执行这个操作。')}<div class="w">再点一次「？按钮说明」关掉说明模式</div>`;
+  b.hidden = false;
+  const r = el.getBoundingClientRect(), w = Math.min(300, innerWidth - 24);
+  b.style.left = Math.max(12, Math.min(r.left, innerWidth - w - 12)) + 'px';
+  const below = r.bottom + 8, hgt = b.offsetHeight;
+  b.style.top = (below + hgt > innerHeight - 12 ? Math.max(12, r.top - hgt - 8) : below) + 'px';
+}
+document.addEventListener('click', e => {
+  if (!document.body.classList.contains('explain')) { $('#helpBubble').hidden = true; return; }
+  const el = e.target.closest('[data-do],[data-tab],[data-g],#aiBtn,#btnSettings,#online,#btnHelp,.drop');
+  if (!el || el.id === 'btnExplain' || el.closest('dialog')) { if (!el || el.id !== 'btnExplain') $('#helpBubble').hidden = true; return; }
+  e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+  bubble(el, el.classList.contains('drop') ? ['照片位', '点一下选照片，或者直接把照片拖进来。', ''] : helpOf(el) || [el.textContent.trim() || '按钮', '', '']);
+}, true);
+// 鼠标停在按钮上也有一句提示（已有提示的不覆盖）
+function addTitles() {
+  document.querySelectorAll('.app [data-do]').forEach(el => { const h = HELP[el.dataset.do]; if (h && !el.title) el.title = h[1]; });
+}
+$('#btnExplain').onclick = () => {
+  const on = !document.body.classList.contains('explain');
+  document.body.classList.toggle('explain', on);
+  $('#btnExplain').setAttribute('aria-pressed', on);
+  $('#helpBubble').hidden = true;
+  toast(on ? '说明模式：点任何按钮只看它是干什么的，不会执行' : '已关掉说明模式');
+};
+
+// 帮助搜索：常见问题 + 每一页 + 每个按钮
+function helpIndex() {
+  const out = FAQ.map(([q, a, p]) => ({t: q, a, p, kind: '常见问题'}));
+  for (const [t] of TABS) for (const [s] of subsOf(t)) { const k = t + '.' + s; if (DESC[k]) out.push({t: pageName(k), a: DESC[k], p: k, kind: '页面'}); }
+  const seen = new Set();
+  for (const [d, [t, a, p]] of Object.entries(HELP)) { if (!p || seen.has(t + p)) continue; seen.add(t + p); out.push({t, a, p, kind: '按钮', d}); }
+  return out;
+}
+function searchHelp(q) {
+  const terms = q.trim().toLowerCase().split(/\s+/).filter(Boolean), all = helpIndex();
+  if (!terms.length) return all.filter(x => x.kind === '常见问题');
+  return all.map(x => { const t = x.t.toLowerCase(), a = (x.a + ' ' + pageName(x.p)).toLowerCase();
+    let sc = 0; for (const w of terms) { if (t.includes(w)) sc += 3; else if (a.includes(w)) sc += 1; else return null; }
+    return [sc + (x.kind === '常见问题' ? 1 : 0), x]; }).filter(Boolean).sort((a, b) => b[0] - a[0]).slice(0, 12).map(x => x[1]);
+}
+$('#btnHelp').onclick = () => {
+  if (document.body.classList.contains('explain')) return;
+  openDlg(`<h2>搜帮助</h2><input id="hq" placeholder="输入关键词，例如：验证码、封面、没发出、模特" autocomplete="off"><div class="hres" id="hres"></div>` + closeBtn, () => {}, f => {
+    const draw = () => { const res = searchHelp($('#hq').value); $('#hres').innerHTML = res.map((x, i) => `<button type="button" data-hi="${i}"><b>${esc(x.t)}</b><span>${esc(x.kind)}${x.p ? ' · ' + esc(pageName(x.p)) : ''}　${esc(x.a)}</span></button>`).join('') || '<div class="empty">没找到。换个说法，或者打开「？按钮说明」直接点按钮看。</div>';
+      $('#hres').onclick = e => { const b = e.target.closest('[data-hi]'); if (!b) return; const x = res[+b.dataset.hi]; $('#dlg').close();
+        if (x.p) { const [t, s] = x.p.split('.'); go(t, s); }
+        if (x.d) setTimeout(() => { const el = document.querySelector(`.app [data-do="${x.d}"]`); if (el) { el.scrollIntoView({block: 'center', behavior: 'smooth'}); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 3400); } else toast('这个按钮要先选好一款 / 一篇稿才会出现'); }, 60); };
+    };
+    $('#hq').oninput = draw; draw(); $('#hq').focus();
+  });
+};
+
 document.addEventListener('toggle', async e => {
   if (e.target.id !== 'promptBox' || !e.target.open) return;
   let j = null;
@@ -1498,6 +1757,7 @@ document.addEventListener('click', async e => {
     case 'when': UI.when = b.dataset.k; render(); break;
     case 'approve': approveFlow(r); break;
     case 'tryFill': {
+      G.tried = true; saveG();
       toast('正在打开发布页试填，大约 1 分钟…');
       const j = await api('/api/publish/try', {account: UI.acc, id, markAi: UI.markAi});
       if (!j) break;

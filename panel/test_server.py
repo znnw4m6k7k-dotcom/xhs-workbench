@@ -1273,5 +1273,15 @@ class PanelTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.m.r_image({"action": "approve", "path": good[0]})
 
+class GuideTests(unittest.TestCase):
+    """向导：每个按钮都要有一句说明，按钮说明模式和帮助搜索才不会漏。"""
+    def test_every_button_has_help(self):
+        import re
+        html = Path(__file__).with_name("index.html").read_text(encoding="utf-8")
+        used = set(re.findall(r'data-do="([A-Za-z]+)"', html))
+        start = html.index("const HELP = {")
+        helped = set(re.findall(r"^  ([A-Za-z]+): \[", html[start:html.index("};", start)], re.M))
+        self.assertEqual(sorted(used - helped), [], "这些按钮还没写说明，补到 index.html 的 HELP 里")
+
 if __name__ == "__main__":
     unittest.main()
