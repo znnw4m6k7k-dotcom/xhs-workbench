@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>女装小红书工作台</title>
+<title>the rumah小红书工作台</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%228%22 fill=%22%23e0303f%22/%3E%3C/svg%3E">
 <style>
-/* 女装小红书工作台 v5
+/* the rumah小红书工作台 v5
    布局：左侧导航（四大块按流程 1→2→3→4，当前块展开子页）+ 右侧页面（页头一句话说明 → 内容 → 底部固定的主按钮）。
    视觉：暖白底、卡片轻阴影少描边；小红书红只给主按钮和选中态；8px 间距；一页只有一个红色主按钮。 */
 :root{
@@ -312,12 +312,39 @@ details summary{cursor:pointer}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}.dot{animation:none}}
 
 .panel > .stack:has(> .actions:last-child){padding-bottom:0}
+
+/* 向导：开局清单 / 下一步条、按钮说明模式、帮助搜索 */
+.headtools{display:flex;gap:8px;flex-shrink:0}
+.headtools button[aria-pressed="true"]{background:var(--info-soft);color:var(--info);border-color:transparent}
+.guide{margin-bottom:14px}
+.nextbar{display:flex;align-items:center;justify-content:space-between;gap:12px;border-radius:var(--r);padding:10px 14px;background:var(--info-soft);color:var(--ink2);font-size:13px}
+.nextbar b{color:var(--info)}
+.nextbar.done{background:var(--good-soft)}.nextbar.done b{color:var(--good)}
+.starter{background:var(--card);border-radius:var(--r2);box-shadow:var(--shadow);padding:14px 16px}
+.starter .h{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.starter ol{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.starter li{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:8px;align-items:center;padding:6px 8px;border-radius:8px;font-size:13px;color:var(--muted)}
+.starter li .ck{width:18px;height:18px;border-radius:50%;border:1.5px solid var(--line);display:grid;place-items:center;font-size:11px}
+.starter li.ok .ck{background:var(--good);border-color:var(--good);color:#fff}
+.starter li.ok span.t{text-decoration:line-through}
+.starter li.cur{background:var(--info-soft);color:var(--ink)}
+.starter li.cur .ck{border-color:var(--info)}
+body.explain .app [data-do],body.explain .app [data-tab],body.explain #aiBtn,body.explain #btnSettings,body.explain #online{outline:1.5px dashed var(--info);outline-offset:2px;cursor:help}
+#helpBubble{position:fixed;z-index:30;max-width:300px;background:var(--ink);color:var(--paper);font-size:13px;line-height:1.6;padding:10px 12px;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.25)}
+#helpBubble b{display:block;margin-bottom:2px}
+#helpBubble .w{opacity:.7;font-size:12px;margin-top:4px}
+.hres{display:grid;gap:6px;max-height:50vh;overflow:auto}
+.hres button{text-align:left;display:block;width:100%;white-space:normal;min-width:0;padding:8px 10px;border-radius:8px;background:var(--soft2);border:1px solid var(--line)}
+.hres button b{display:block;font-size:13px}.hres button span{display:block;font-size:12px;color:var(--muted);line-height:1.6}
+.flash{animation:flash 1.6s ease 2}
+@keyframes flash{0%,100%{box-shadow:none}50%{box-shadow:0 0 0 4px var(--info)}}
+@media (max-width:760px){.nextbar{flex-direction:column;align-items:flex-start}}
 </style>
 </head>
 <body>
 <div class="app">
   <aside class="side">
-    <div class="brand"><div class="mk" aria-hidden="true">红</div><div><b>女装工作台</b><span>产品图 → 文案 → 发布</span></div></div>
+    <div class="brand"><div class="mk" aria-hidden="true">红</div><div><b>the rumah</b><span>小红书工作台</span></div></div>
     <div class="accsw"><select id="acc" aria-label="账号"></select><button type="button" class="login" id="online" data-go="login"></button></div>
     <nav class="secs" id="big" aria-label="四大板块"></nav>
     <div class="side-foot">
@@ -326,7 +353,9 @@ details summary{cursor:pointer}
     </div>
   </aside>
   <section class="main">
-    <div class="pagehead"><div><div class="crumb" id="crumb"></div><h1 id="ptitle"></h1><p class="pdesc" id="pdesc"></p></div></div>
+    <div class="pagehead"><div><div class="crumb" id="crumb"></div><h1 id="ptitle"></h1><p class="pdesc" id="pdesc"></p></div>
+      <div class="headtools"><button type="button" class="ghost" id="btnHelp">搜帮助</button><button type="button" class="ghost" id="btnExplain" aria-pressed="false" title="打开后点任何按钮只看说明，不会执行">？按钮说明</button></div></div>
+    <div id="guide"></div>
     <nav class="subm" id="subm" aria-label="子页"></nav>
     <div id="health"></div>
     <main id="page"></main>
@@ -334,6 +363,7 @@ details summary{cursor:pointer}
 </div>
 <dialog id="dlg"><form method="dialog" id="dlgForm" class="stack"></form></dialog>
 <div class="toast" id="toast" hidden></div>
+<div id="helpBubble" hidden></div>
 <input type="file" id="photoFile" accept="image/*" hidden>
 <input type="file" id="refFile" accept="image/*" multiple hidden>
 <input type="file" id="realFile" accept="image/*" multiple hidden>
@@ -346,7 +376,7 @@ details summary{cursor:pointer}
 let D = null, sig = '';
 const UI = {tab: 'img', sub: {img: 'info', copy: 'review', pub: 'queue', hist: 'all'}, acc: '', item: '', review: '', pubSel: '', week: 0, when: '', whenAt: ''};
 // 出图时的选择；写文案时的选择（从「出好的图」或「选题库」带过来）
-const PICK = {refs: [], face: 'model', model: '', style: 'mirror', autoWrite: true, split: 1, init: ''};
+const PICK = {refs: [], face: 'model', model: '', style: 'mirror', autoWrite: true, split: 1, trial: true, init: ''};
 const W = {item: '', imgs: [], topic: null, split: 1, cover: '', trialItem: ''};
 try { const s = JSON.parse(localStorage.getItem('xhs-studio-ui5') || '{}'); Object.assign(UI, s, {sub: Object.assign(UI.sub, s.sub || {})}); } catch (e) {}
 const save = () => { try { localStorage.setItem('xhs-studio-ui5', JSON.stringify({tab: UI.tab, sub: UI.sub, acc: UI.acc, item: UI.item})); } catch (e) {} };
@@ -414,7 +444,7 @@ const activeJobs = () => D.jobs.filter(j => j.status === 'running' || j.status =
 const JOBST = {queued: ['排队中', ''], running: ['进行中', 'acc'], done: ['完成', 'good'], failed: ['失败', 'bad'], cancelled: ['已取消', '']};
 const JOBKIND = {spec: '写档案', lock: '出图', write: '写文案', rewrite: '改稿', topics: '出选题', trial: '试写'};
 const allGrades = () => Object.assign({}, ...D.items.map(i => i.grades || {}));
-const gradePill = g => g && g.grade ? `<span class="pill ${g.grade === 'A' ? 'good' : g.grade === 'B' ? 'warn' : 'bad'}">${g.grade}</span>` : '';
+const gradePill = g => g && g.grade ? `<span class="pill ${g.grade === 'A' || g.grade === '人工' ? 'good' : g.grade === 'B' ? 'warn' : 'bad'}">${g.grade}</span>` : '';
 const myTopics = () => mine(D.topics);
 const unusedTopics = () => myTopics().filter(t => t.status === 'unused');
 const refStyle = r => D.lock.refStyles[r] || 'other';
@@ -441,21 +471,25 @@ const weekStart = off => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDa
 // 一款多号：每批图记着是给哪个号出的，只看这个号的（老数据没标号的大家都能用）
 const myJobs = it => (it.lockJobs || []).filter(j => !j.account || String(j.account) === String(UI.acc));
 const lastImages = it => (myJobs(it).find(j => j.images.length) || {images: []}).images;
-const batches = it => myJobs(it).filter(j => j.images.length);
+// 试拍后续出的（以前还有评 C 自动返工的）算在原来那一批里
+const batches = it => myJobs(it).filter(j => (j.images.length || (j.rejectedFiles || []).length) && !(j.recipe || {}).reworkOf);
+// 两版都没过、agent 留在 rejected/ 里等人挑的版本（不含自己点「驳回」的，那些在下面单独列）
+const leftovers = (it, cur) => !cur ? [] : [cur].concat(myJobs(it).filter(j => (j.recipe || {}).reworkOf === cur.name))
+  .flatMap(j => j.rejectedFiles || []).filter(p => !Object.values(D.imgRejected || {}).some(x => x.to === p));
 const batchOf = it => { const bs = batches(it); return bs.find(j => j.name === (UI.batch || {})[it.id]) || bs[0]; };
-const batchImages = it => (batchOf(it) || {images: []}).images;
-function batchLabel(j, i) {
+const batchImages = it => { const b = batchOf(it); return b ? b.images.concat(...myJobs(it).filter(j => (j.recipe || {}).reworkOf === b.name).map(j => j.images)) : []; };
+function batchLabel(j, i, it) {
   const r = j.recipe || {}, t = r.createdAt || 0;
-  return `第 ${i} 批 · ${t ? fmtDT(t) + ' · ' : ''}${[D.styles[r.style], castText(r)].filter(Boolean).map(esc).join(' · ') || esc(j.name)} · ${j.images.length} 张`;
+  return `第 ${i} 批 · ${t ? fmtDT(t) + ' · ' : ''}${[D.styles[r.style], castText(r)].filter(Boolean).map(esc).join(' · ') || esc(j.name)} · ${j.images.length + (it ? myJobs(it).filter(x => (x.recipe || {}).reworkOf === j.name).reduce((n, x) => n + x.images.length, 0) : 0)} 张`;
 }
 function batchSel(it) {
   const bs = batches(it), cur = batchOf(it);
   if (bs.length < 2) return '';
-  return `<label class="row small" style="flex-wrap:nowrap;gap:8px"><span class="muted" style="white-space:nowrap">用哪一批</span><select id="batchSel" data-id="${esc(it.id)}" style="width:auto">${bs.map((j, i) => `<option value="${esc(j.name)}" ${j === cur ? 'selected' : ''}>${batchLabel(j, bs.length - i)}</option>`).join('')}</select></label>`;
+  return `<label class="row small" style="flex-wrap:nowrap;gap:8px"><span class="muted" style="white-space:nowrap">用哪一批</span><select id="batchSel" data-id="${esc(it.id)}" style="width:auto">${bs.map((j, i) => `<option value="${esc(j.name)}" ${j === cur ? 'selected' : ''}>${batchLabel(j, bs.length - i, it)}</option>`).join('')}</select></label>`;
 }
 function imgTile(it, p, sel, withOps) {
   const k = sel.indexOf(p), gr = (it.grades || {})[p], bad = isBad(it, p);
-  const tile = `<button type="button" class="ref" data-do="pickImg" data-p="${esc(p)}" aria-pressed="${k >= 0}" ${bad ? 'disabled title="出图检查没通过，不能用"' : ''}><img class="th" src="${img(p)}" alt="">${k >= 0 ? `<span class="n">${k === 0 ? '封面' : k + 1}</span>` : ''}<span class="g">${gradePill(gr) || (isReal(it, p) ? '<span class="pill">实拍</span>' : '')}</span><span class="l">${esc(gr && gr.note ? gr.note : base(p))}</span></button>`;
+  const tile = `<button type="button" class="ref" data-do="pickImg" data-p="${esc(p)}" aria-pressed="${k >= 0}" ${bad ? 'disabled title="出图检查没通过，不能用"' : ''}><img class="th" src="${img(p)}" alt="">${k >= 0 ? `<span class="n">${k === 0 ? '封面' : k + 1}</span>` : ''}<span class="g">${gradePill(gr) || (isReal(it, p) ? '<span class="pill">实拍</span>' : '')}${(D.colorFlags || {})[p] && !bad ? ' <span class="pill warn" title="成品中间的颜色和产品正面照差得比较多，可能是光线，也可能衣服颜色偏了">颜色?</span>' : ''}</span><span class="l">${esc(gr && gr.note ? gr.note : base(p))}</span></button>`;
   if (!withOps || isReal(it, p)) return tile;
   return `<div class="refwrap">${tile}<div class="tileops"><button type="button" class="link" data-do="imgInfo" data-id="${esc(it.id)}" data-p="${esc(p)}">参数</button><button type="button" class="link" style="color:var(--bad)" data-do="imgReject" data-id="${esc(it.id)}" data-p="${esc(p)}">驳回</button></div></div>`;
 }
@@ -464,7 +498,7 @@ const busyHint = text => `<div class="hint"><span class="dot" style="display:inl
 // ---------- 结构：四大块，每块一排子页；每页页头一句话告诉人这一页干什么
 const DESC = {
   'img.info': '拍好的衣服照片放进来，AI 读吊牌写档案；你补上材质手感和痛点，再核对检查要点。',
-  'img.shoot': '选风格和参考图，锁住衣服细节出图。每个号记得自己上次的拍法，换号自动换。每张出完 AI 会放大检查，不合格自动重做。',
+  'img.shoot': '选风格和参考图，锁住衣服细节出图。每个号记得自己上次的拍法，换号自动换。每张出完 AI 会放大检查，不合格重做 1 次，还不过就留给你挑。',
   'img.result': '挑能用的图（AI 图和实拍图可以混着用），第 1 张是封面，然后交给 AI 写文案。',
   'img.lib': '模特资料卡、每个号固定用谁，和想模仿的参考图。参考图按风格分组，可以自己加组；出图时选了风格就自动带上。',
   'copy.topic': '每个号一个选题库。看场景 × 身材哪里还空着，挑一条去写。',
@@ -516,16 +550,20 @@ function render() {
   $('#ptitle').textContent = subName;
   $('#pdesc').textContent = DESC[UI.tab + '.' + UI.sub[UI.tab]] || '';
   const h = [];
+  const bk = D.brake || {};
+  if (bk.on) h.push(`<div class="notice bad row between" style="flex-wrap:nowrap;gap:12px"><span><b>所有号的发布已暂停</b>（${fmtDT(bk.at)}）：${bk.account ? `「${esc((D.accounts.find(a => String(a.id) === String(bk.account)) || {}).name || bk.account)}」` : ''}${esc(bk.reason)}。${{验证码: '到小红书 App 或浏览器里把验证过了，', 登录失效: '到「发布 › 账号和登录」重新扫码，', 发布结果不确定: '先到创作中心「笔记管理」看看刚才那篇发出去没有，'}[bk.reason] || '先处理好，'}再点右边恢复。暂停期间到点的稿不会发，排到以后的照常保留。</span><button type="button" class="primary" data-do="resumeBrake">恢复发布</button></div>`);
   if (D.demo) h.push('<div class="notice demo"><b>演示模式</b>：数据是假的，不会调用 Codex，也不会真的发帖。</div>');
   if (!D.lock.ok) h.push(`<div class="notice bad"><b>找不到锁图工作台</b>（${esc(D.lock.path)}）。出图用不了，到“设置 › 高级”里填 xhs-lock-studio 文件夹的位置。</div>`);
   if (!D.publisherOk) h.push('<div class="notice bad"><b>找不到发布脚本</b>（xhs-autopilot/publisher/xhs_publish.py）。发布用不了。</div>');
   if (!D.codex) h.push('<div class="notice bad"><b>找不到 codex 命令行。</b>出图和写文案用不了，到“设置 › 高级”里填它的路径。</div>');
   $('#health').innerHTML = h.length ? `<div class="stack" style="margin-bottom:14px">${h.join('')}</div>` : '';
+  $('#guide').innerHTML = `<div class="guide">${renderGuide()}</div>`;
   const ae = document.activeElement;
   if (ae && ae.closest && ae.closest('#page') && ['INPUT', 'TEXTAREA', 'SELECT'].includes(ae.tagName) && ae.type !== 'checkbox' && ae.type !== 'radio') return;
   const sub = UI.sub[UI.tab];
   $('#page').innerHTML = ({img: pageImg, copy: pageCopy, pub: pagePub, hist: pageHist})[UI.tab](sub);
   bindDrops();
+  addTitles();
   const tb = $('#rBody'); if (tb) tb.oninput = () => { $('#bodyCount').textContent = `${len(tb.value)} / 888`; };
 }
 
@@ -572,7 +610,13 @@ function infoPage(it) {
     : '<div class="small muted">材质手感和痛点都填好后，AI 会自动给这款出 5 条选题，放进「文案 › 选题库」。</div>';
   const fld = (k, l, ph, wide) => `<label class="f ${wide ? 'wide' : ''}">${l}<input id="if-${k}" value="${esc(it[k] || '')}" placeholder="${esc(ph)}"></label>`;
   const reals = (it.realPhotos || []).map(p => `<div class="ref refbox"><img class="th" src="${img(p)}" alt=""><button type="button" class="x ghost danger" data-do="delReal" data-id="${esc(it.id)}" data-p="${esc(p)}" aria-label="移除">×</button><span class="l">${esc(stem(p))}</span></div>`).join('');
-  return `<div class="sec"><div class="h"><h3>产品照片</h3><span class="small muted">纯色背景平铺或挂拍；照片越全，出图越不走样</span></div><div class="slots">${slots}</div>${notes}</div>
+  const pieces = it.pieces || [];
+  const pslot = (pc, k, l) => { const p = ((it.piecePhotos || {})[pc.id] || {})[k]; return `<div class="slot"><button type="button" class="drop" data-slot="${pc.id}_${k}" data-id="${esc(it.id)}" title="点击或把照片拖进来">${p ? `<img src="${img(p)}" alt="${l}">` : '＋ 拖进来'}</button>
+      <span class="cap"><b>${l}</b>${p ? '<span class="pill good">✓</span>' : k === 'front' ? '<span class="pill bad">必须</span>' : ''}</span></div>`; };
+  const suit = pieces.map(pc => `<div class="sec"><div class="h"><h3>套装 · ${esc(pc.name)}</h3><div class="row"><button type="button" class="link" data-do="renamePiece" data-id="${esc(it.id)}" data-piece="${pc.id}">改名</button><button type="button" class="link" style="color:var(--bad)" data-do="delPiece" data-id="${esc(it.id)}" data-piece="${pc.id}">删掉这件</button></div></div>
+      <div class="slots">${pslot(pc, 'front', '正面')}${pslot(pc, 'back', '背面')}${pslot(pc, 'detail', '细节')}</div></div>`).join('');
+  return `<div class="sec"><div class="h"><h3>${pieces.length ? `套装 · ${esc(it.mainPiece || '主件')} <button type="button" class="link" data-do="renameMain" data-id="${esc(it.id)}">改名</button>` : '产品照片'}</h3><span class="small muted">纯色背景平铺或挂拍；照片越全，出图越不走样</span></div><div class="slots">${slots}</div>${notes}</div>
+    ${suit}<div class="row small"><button type="button" class="ghost" data-do="addPiece" data-id="${esc(it.id)}" ${pieces.length >= 3 ? 'disabled' : ''}>＋ 这是套装，再加一件</button><span class="muted">${pieces.length ? `一套 ${pieces.length + 1} 件。生图一次只能附 4 张产品图，会先附每件的正面，再补细节。加减件后要重写档案。` : '上衣配半裙、西装配裤子这种成套卖的，每件单独放照片。'}</span></div>
     <div class="sec"><div class="h"><h3>实拍图（可不放）</h3><span class="small muted">自己拍的上身、挂拍、平铺、手摸面料；不过 AI，写文案时和 AI 图一起挑</span></div>
       ${reals ? `<div class="refs">${reals}</div>` : ''}<div class="row"><button type="button" data-do="addReal" data-id="${esc(it.id)}">＋ 加实拍图</button></div></div>
     <div class="sec"><div class="h"><h3>资料</h3><span class="small muted">文案里的事实只从这里取，AI 不会自己编</span></div>${aiNote}
@@ -586,8 +630,10 @@ function infoPage(it) {
 const chkRow = (c, i, ok) => `<div class="chk ${c.unsure && !ok ? 'unsure' : ''}">${c.unsure && !ok ? '<input type="checkbox" aria-label="已对着实物核对">' : '<span class="sp"></span>'}
   <select aria-label="级别"><option ${c.level === '必过' ? 'selected' : ''}>必过</option><option ${c.level === '尽量' ? 'selected' : ''}>尽量</option></select>
   <input value="${esc(c.text)}" aria-label="检查要点 ${i + 1}"><button type="button" class="ghost danger" data-do="delCheck" aria-label="删除">×</button></div>`;
+// 出图时只列这个号能用的场景组（在「模特和参考图库」里给每组勾号；没勾就是所有号都能用）
+const styleFor = (k, aid = UI.acc) => { const l = (D.styleAccounts || {})[k] || []; return !l.length || l.includes(String(aid)); };
 const styleOpts = () => [['mirror', '对镜自拍', '手机挡脸 · 试衣镜 / 电梯镜 / 卧室镜'], ['street', '街拍', '走路 · 回头 · 过马路 · 靠墙']]
-  .concat((D.styleGroups || []).map(g => [g.id, g.name, g.note || '自己加的一组'])).concat([['own', '自己挑', '从全部参考图里选']]);
+  .concat((D.styleGroups || []).map(g => [g.id, g.name, g.note || '自己加的一组'])).filter(x => styleFor(x[0])).concat([['own', '自己挑', '从全部参考图里选']]);
 const FACE_NAME = {hide: '不露脸', model: '换成我们的模特', ai: 'AI 脸', none: '没有人的静物'};
 function initPick(it, style) {
   const lp = D.lastPick || {}, refs = D.lock.refs, models = D.lock.models, mine = (lp.byAcc || {})[String(UI.acc)];
@@ -614,7 +660,7 @@ function shootPage(it) {
   const last = myJobs(it)[0];
   if (job) {
     const mins = Math.max(0, Math.round(((job.startedAt || job.createdAt) + (job.estimateMin || 20) * 60e3 - Date.now()) / 60e3));
-    return `${busyHint(`正在出图：${esc(job.title)}。${job.status === 'queued' ? (activeJobs().some(j => j.status === 'running') ? '前面还有任务在排队。' : '马上开始。') : `预计还要 ${mins} 分钟左右。`}每张出完 AI 会放大检查脸和衣服，不合格自动重做。`)}
+    return `${busyHint(`正在出图：${esc(job.title)}。${job.status === 'queued' ? (activeJobs().some(j => j.status === 'running') ? '前面还有任务在排队。' : '马上开始。') : `预计还要 ${mins} 分钟左右。`}每张出完 AI 会放大检查脸和衣服，不合格重做 1 次，还不过留给你挑。`)}
       ${last && last.images.length ? `<div class="refs">${last.images.map(p => `<div class="ref"><img class="th" src="${img(p)}" alt=""><span class="l">${esc(base(p))}</span></div>`).join('')}</div>` : ''}
       <div class="row"><button type="button" class="ghost" data-do="log" data-id="${esc(job.id)}">看过程</button><button type="button" class="ghost danger" data-do="cancelJob" data-id="${esc(job.id)}">停止</button></div>`;
   }
@@ -639,10 +685,11 @@ function shootPage(it) {
         : `<div class="hint warn">${PICK.style === 'own' ? '参考图库是空的' : `「${styleName}」这组还没有参考图`}，先上传几张想模仿的小红书图。</div>`}
       <div class="row"><button type="button" data-do="uploadRef" data-style="${PICK.style === 'own' ? 'other' : PICK.style}">＋ 上传${PICK.style === 'own' ? '' : '到「' + styleName + '」'}参考图</button></div></div>
     <label class="f">补充要求（可不填）<input id="lockNote" value="${esc(PICK.note || '')}" placeholder="例：外套扣子全扣上；下装和鞋保留参考图原来的"></label>
+    ${PICK.refs.length > 1 ? `<label class="row small" style="flex-wrap:nowrap;align-items:flex-start;gap:8px"><input type="checkbox" id="trial" ${PICK.trial ? 'checked' : ''} style="width:auto"> 先试出 1 张，你看过构图、脸和衣服都对，再出剩下的 ${PICK.refs.length - 1} 张（推荐：错了只白出 1 张）</label>` : ''}
     <div class="sec"><label class="row small" style="flex-wrap:nowrap;align-items:flex-start;gap:8px"><input type="checkbox" id="autoWrite" ${PICK.autoWrite ? 'checked' : ''} style="width:auto"> 出完自动挑 A 级图写文案（有这款的选题就用上），写好放进「文案 › 审稿」</label>
       ${PICK.autoWrite ? `<label class="row small" style="flex-wrap:nowrap;align-items:flex-start;gap:8px;margin-left:24px"><input type="checkbox" id="autoSplit" ${PICK.split === 2 ? 'checked' : ''} style="width:auto"> 图够 4 张就拆成 2 篇（身材尺码一篇、场景搭配一篇）</label>` : ''}</div>
     ${D.accounts.length > 1 ? `<div class="row between small"><span class="muted">同一款要发好几个号？每个号按自己记住的拍法各出一组，图不重复，出完各写各的稿。</span><button type="button" class="ghost" data-do="multiShoot" data-id="${esc(it.id)}">给几个号各出一组</button></div>` : ''}
-    <div class="actions"><span class="small muted">${PICK.refs.length ? `${PICK.refs.length} 张 · 约 ${est} 分钟 · 额度用完会停在当前张，恢复后再点只补没出的` : '先选参考图'}</span>
+    <div class="actions"><span class="small muted">${PICK.refs.length ? (PICK.trial && PICK.refs.length > 1 ? `先试出 1 张 · 约 ${est / PICK.refs.length} 分钟，看过再出剩下的 ${PICK.refs.length - 1} 张` : `${PICK.refs.length} 张 · 约 ${est} 分钟`) + ' · 额度用完会停在当前张，恢复后再点只补没出的' : '先选参考图'}</span>
       <button type="button" class="primary big" data-do="lock" data-id="${esc(it.id)}" ${PICK.refs.length && (PICK.face !== 'model' || PICK.model) ? '' : 'disabled'}>开始出图</button></div>`;
 }
 function facePick(models) {
@@ -671,7 +718,7 @@ function modelCard(m, pick) {
   return pick ? `<button type="button" class="model" data-do="pickModel" data-name="${esc(m.name)}" aria-pressed="${PICK.model === m.name}">${inner}</button>` : `<div class="model panel">${inner}</div>`;
 }
 function resultPage(it) {
-  const last = myJobs(it).find(j => j.images.length);
+  const last = myJobs(it).find(j => j.images.length || (j.rejectedFiles || []).length);
   const addReal = `<button type="button" data-do="addReal" data-id="${esc(it.id)}">＋ 加实拍图</button>`;
   if (!last && !(it.realPhotos || []).length) return `<div class="empty">还没有出好的图。<button type="button" class="link" data-do="goSub" data-tab="img" data-sub="shoot">去 ② 出图</button>，或者直接用自己拍的：<br><br>${addReal}</div>`;
   const g = it.grades || {}, cur = batchOf(it);
@@ -679,10 +726,18 @@ function resultPage(it) {
   if (W.item !== it.id) { W.item = it.id; W.imgs = []; }
   W.imgs = W.imgs.filter(p => pool.includes(p) && !isBad(it, p));
   if (!W.imgs.length) W.imgs = defaultImgs(it);
-  const n = (cur ? cur.images : []).reduce((o, p) => { const x = (g[p] || {}).grade || '?'; o[x] = (o[x] || 0) + 1; return o; }, {});
+  const n = (cur ? batchImages(it) : []).reduce((o, p) => { const x = (g[p] || {}).grade || '?'; o[x] = (o[x] || 0) + 1; return o; }, {});
   const rej = cur ? Object.entries(D.imgRejected || {}).filter(([p]) => p.startsWith(cur.dir + '/')) : [];
-  return `${batchSel(it)}<div class="hint">${cur ? `这批出了 ${cur.images.length} 张：A ${n.A || 0} · B ${n.B || 0}${n.C ? ` · C ${n.C}（灰掉的不能用）` : ''}${cur.rejected ? ` · ${cur.rejected} 张没通过已放进 rejected` : ''}。A 能直接用；B 衣服对、小地方请放大看。<b>一篇只能用同一批的图</b>，不满意的点图下面「驳回」。` : '这款还没出 AI 图，下面是实拍图。'}${(it.realPhotos || []).length ? `实拍图 ${it.realPhotos.length} 张，不过 AI，可以和 AI 图混着用。` : ''}点图选择，<b>第 1 张是封面</b>。</div>
+  const rw = cur ? myJobs(it).filter(j => (j.recipe || {}).reworkOf === cur.name) : [];
+  const rwRun = cur && activeJobs().some(j => j.kind === 'lock' && j.params && j.params.reworkOf === cur.name);
+  const nColor = (cur ? batchImages(it) : []).filter(p => (D.colorFlags || {})[p] && !isBad(it, p)).length;
+  const left = leftovers(it, cur);
+  const rest = cur && !rw.some(j => j.images.length) && !rwRun ? ((cur.recipe || {}).rest || []) : [];
+  return `${batchSel(it)}${rwRun ? busyHint('正在出这批剩下的图，好了接在这批后面。') : rw.length ? `<div class="hint">后面出的 ${rw.reduce((n, j) => n + j.images.length, 0)} 张接在这批里，可以一起用。</div>` : ''}
+    ${rest.length ? `<div class="hint good row between" style="flex-wrap:wrap;gap:8px"><span>这是<b>试拍的 1 张</b>。放大看看构图、脸和衣服：都对就出剩下的 ${rest.length} 张（同样的设置，算同一批${(cur.recipe || {}).restAuto ? '，出完自动写文案' : ''}）；不对就回「出图」改参考图或补充要求再试。</span><button type="button" class="primary" data-do="lockRest" data-batch="${esc(cur.name)}">没问题，出剩下的 ${rest.length} 张</button></div>` : ''}
+    ${nColor ? `<div class="hint warn">有 ${nColor} 张标了「颜色?」：成品中间的颜色和产品正面照差得比较多。可能只是光线，放大和实物对一下再用。</div>` : ''}<div class="hint">${cur ? `这批出了 ${batchImages(it).length} 张：A ${n.A || 0} · B ${n.B || 0}${n.C ? ` · C ${n.C}（灰掉的不能用）` : ''}${cur.rejected ? ` · ${cur.rejected} 版没通过，每版都留着` : ''}。A 能直接用；B 衣服对、小地方请放大看。<b>一篇只能用同一批的图</b>，不满意的点图下面「驳回」。` : '这款还没出 AI 图，下面是实拍图。'}${(it.realPhotos || []).length ? `实拍图 ${it.realPhotos.length} 张，不过 AI，可以和 AI 图混着用。` : ''}点图选择，<b>第 1 张是封面</b>。</div>
     <div class="refs">${pool.map(p => imgTile(it, p, W.imgs, true)).join('')}</div>
+    ${left.length ? `<details ${cur.images.length ? '' : 'open'}><summary class="small">这批有 ${left.length} 张没通过检查（每版都留着），你来挑</summary><div class="hint" style="margin-top:8px">AI 返工 1 次（出到第 2 版）还不过就不再重做了，省时间也省额度。下面每一版都在，放大看看，觉得能用就点「用这张」，它会回到这批里，标「人工」。</div><div class="refs">${left.map(p => { const gr = (it.grades || {})[p]; return `<div class="refwrap"><a class="ref" href="${img(p)}" target="_blank" rel="noopener"><img class="th" src="${img(p)}" alt=""><span class="g">${gradePill(gr)}</span><span class="l">${esc(gr && gr.note ? gr.note : base(p))}</span></a><div class="tileops"><button type="button" class="link" data-do="imgApprove" data-p="${esc(p)}">用这张</button></div></div>`; }).join('')}</div></details>` : ''}
     ${rej.length ? `<details><summary class="small">这批驳回了 ${rej.length} 张</summary><div class="stack" style="gap:6px;margin-top:8px">${rej.map(([p, x]) => `<div class="row small" style="flex-wrap:nowrap"><img src="${img(x.to)}" alt="" style="width:36px;height:48px;object-fit:cover;border-radius:6px"><span>${esc(base(p))} · ${esc(x.why)} · ${fmtDT(x.at)}</span><button type="button" class="ghost" data-do="imgRestore" data-p="${esc(p)}">恢复</button></div>`).join('')}</div></details>` : ''}
     <div class="row">${addReal}<span class="small muted">上身、挂拍、平铺、手摸面料都行；要删在「照片和资料」里删</span></div>
     <div class="actions"><div class="row"><button type="button" class="link" data-do="report" data-id="${esc(it.id)}" ${cur ? '' : 'hidden'}>看出图报告</button><button type="button" class="link" data-do="imgInfo" data-id="${esc(it.id)}" ${cur ? '' : 'hidden'}>这批的配方</button></div>
@@ -716,6 +771,7 @@ function libPage() {
     <div class="row between"><span class="small muted">每个号的拍法不一样，可以自己加一组，比如「工作室静物」「书桌房间」「灰棚 lookbook」。</span><button type="button" data-do="newGroup">＋ 新建一组风格</button></div>
     ${groups.map(([k, name, list]) => `<div class="panel pad stack"><div class="row between"><h2>参考图 · ${esc(name)} <span class="small muted">${list.length} 张</span></h2>
         <div class="row">${own(k) ? `<button type="button" class="ghost" data-do="editGroup" data-k="${esc(k)}">改名和说明</button><button type="button" class="ghost danger" data-do="delGroup" data-k="${esc(k)}">删掉这组</button>` : ''}<button type="button" data-do="uploadRef" data-style="${esc(k)}">＋ 上传到「${esc(name)}」</button></div></div>
+      ${k !== 'other' && D.accounts.length > 1 ? `<div class="row small" style="gap:12px"><span class="muted">哪些号能用：</span>${D.accounts.map(a => `<label class="row" style="gap:4px;flex-wrap:nowrap"><input type="checkbox" data-sacc="${esc(k)}" value="${esc(a.id)}" ${((D.styleAccounts || {})[k] || []).includes(String(a.id)) ? 'checked' : ''} style="width:auto">${esc(a.name)}</label>`).join('')}<span class="muted">${((D.styleAccounts || {})[k] || []).length ? '' : '（都没勾 = 所有号都能用）'}</span></div>` : ''}
       ${k === 'mirror' ? '<div class="small muted">刷到想模仿的对镜自拍就存进来：试衣镜、电梯镜、卧室全身镜，手机挡脸的最好用。</div>' : k === 'street' ? '<div class="small muted">街角走路、回头、过马路、靠墙这类抓拍感的街拍。竖图最好，横图会被裁掉两边。</div>' : own(k) ? `<div class="small muted">给 AI 的说明：${esc(own(k).note || '（没写，AI 会照着这组图的场景和光线来）')}</div>` : ''}
       <div class="refs">${list.map(r => `<div class="ref refbox"><img class="th" src="${img(r)}" alt=""><button type="button" class="x ghost danger" data-do="delRef" data-ref="${esc(r)}" aria-label="移除">×</button>
         <select data-refstyle="${esc(r)}" aria-label="风格">${Object.keys(D.styles).map(s => `<option value="${s}" ${s === k ? 'selected' : ''}>${esc(D.styles[s])}</option>`).join('')}</select><span class="l">${esc(stem(r))}</span></div>`).join('') || '<div class="empty">这组还没有图。</div>'}</div></div>`).join('')}
@@ -951,7 +1007,7 @@ function calMatrix() {
 }
 function calPage() {
   const toggle = D.accounts.length > 1 ? `<div class="row"><button type="button" class="chip" data-do="calMode" data-k="one" aria-pressed="${!UI.calAll}">只看这个号</button><button type="button" class="chip" data-do="calMode" data-k="all" aria-pressed="${!!UI.calAll}">全部号（矩阵）</button></div>` : '';
-  const nav = `<div class="row"><button class="ghost" data-do="wk" data-d="-1" type="button">上一周</button><button class="ghost" data-do="wk" data-d="0" type="button">本周</button><button class="ghost" data-do="wk" data-d="1" type="button">下一周</button></div>`;
+  const nav = `<div class="row">${(D.brake || {}).on ? '' : '<button class="ghost danger" data-do="pauseAll" type="button" title="所有号都先不发">全部暂停</button>'}<button class="ghost" data-do="wk" data-d="-1" type="button">上一周</button><button class="ghost" data-do="wk" data-d="0" type="button">本周</button><button class="ghost" data-do="wk" data-d="1" type="button">下一周</button></div>`;
   if (UI.calAll && D.accounts.length > 1) { const ws = weekStart(UI.week); return `<div class="row between" style="margin-bottom:12px"><div class="row"><h2>${UI.week === 0 ? '本周' : `${fmtD(ws)} – ${fmtD(ws + 6 * 864e5)}`}</h2>${toggle}</div>${nav}</div>${calMatrix()}`; }
   const S = D.schedule.filter(s => String(s.account) === String(UI.acc));
   const ws = weekStart(UI.week);
@@ -1259,15 +1315,247 @@ document.addEventListener('change', e => {
   }
   if (t.id === 'autoWrite') { PICK.autoWrite = t.checked; render(); }
   if (t.id === 'autoSplit') PICK.split = t.checked ? 2 : 1;
+  if (t.id === 'trial') PICK.trial = t.checked;
   if (t.id === 'whenAt') UI.whenAt = t.value;
   if (t.id === 'markAi') UI.markAi = t.checked;
   if (t.id === 'wItem') { W.item = t.value; W.imgs = []; W.topic = null; t.blur(); render(); }
+  if (t.dataset && t.dataset.sacc) {
+    const k = t.dataset.sacc, accounts = Array.from(document.querySelectorAll(`[data-sacc="${CSS.escape(k)}"]:checked`)).map(x => x.value);
+    api('/api/style/group', {action: 'accounts', id: k, accounts}).then(j => j && toast(accounts.length ? `「${D.styles[k]}」只给勾上的号用` : `「${D.styles[k]}」所有号都能用`));
+  }
   if (t.id === 'batchSel') { UI.batch = UI.batch || {}; UI.batch[t.dataset.id] = t.value; W.imgs = []; t.blur(); render(); }
   if (t.dataset && t.dataset.acast) { const c = parseCast(t.value); api('/api/account/cast', Object.assign({id: t.dataset.acast}, c || {face: ''})).then(j => j && toast(c ? '已设好，之后上新自动带上' : '已改成不固定')); t.blur(); }
   if (t.id === 'wTopic') W.topic = t.value;
   if (t.id === 'trialItem') W.trialItem = t.value;
   if (t.dataset && t.dataset.refstyle) api('/api/ref/style', {path: t.dataset.refstyle, style: t.value}).then(j => j && toast('已移到「' + D.styles[t.value] + '」'));
 });
+// ================================================================ 向导：开局清单、下一步、按钮说明、帮助搜索
+// 每个按钮：[名字, 干什么 / 点了会怎样, 在哪一页]
+const HELP = {
+  addItem: ['上新一款', '拖进这款衣服的正面照和吊牌照，AI 读吊牌建好资料。', 'img.info'],
+  editItem: ['编辑全部资料', '改这款的名称、款号、尺码、面料、卖点等全部资料。', 'img.info'],
+  pickItem: ['选一款衣服', '左边列表点一款，右边显示这款的资料和图。', 'img.info'],
+  saveInfo: ['保存资料', '保存材质手感、痛点、模特尺码等。第一次填好材质和痛点，AI 会给这款出 5 条选题。', 'img.info'],
+  spec: ['让 AI 按照片写档案', 'AI 看照片写出颜色、材质、领型、扣子等出图时要锁住的细节，大约 3–5 分钟。照片换了就再点一次。', 'img.info'],
+  addCheck: ['加一条检查要点', '自己补一条出图时必须对上的细节，比如“袖口是罗纹”。', 'img.info'],
+  delCheck: ['删掉检查要点', '删掉这一条，出图时不再检查它。', 'img.info'],
+  viewSpec: ['看完整档案', '看 AI 写的完整档案原文。', 'img.info'],
+  confirmSpec: ['已核对，去出图', '检查要点核对完了，跳到「出图」。', 'img.info'],
+  addPiece: ['这是套装，再加一件', '成套卖的（上衣配半裙等），每件单独放照片，最多 4 件。', 'img.info'],
+  renameMain: ['改名', '给套装里的这件改个名字。', 'img.info'],
+  renamePiece: ['改名', '给套装里的这件改个名字。', 'img.info'],
+  delPiece: ['删掉这件', '从套装里去掉这一件。加减件后要重写档案。', 'img.info'],
+  addReal: ['加实拍图', '放自己拍的真人图，可以和 AI 图混着发。', 'img.result'],
+  delReal: ['移除实拍图', '这张实拍图不再用。', 'img.info'],
+  style: ['选风格', '对镜自拍、街拍或自己建的风格组，参考图会跟着换。', 'img.shoot'],
+  pickRef: ['选参考图', '勾几张想模仿的参考图，一张参考图出一张图。', 'img.shoot'],
+  pickModel: ['选模特', '这款由谁来穿。', 'img.shoot'],
+  lock: ['开始出图', '把选好的参考图、模特和衣服交给 AI 出图。一张大约 5–8 分钟，出完会自己检查。', 'img.shoot'],
+  lockRest: ['没问题，出剩下的', '试出的那 1 张看过没问题，接着出剩下的。', 'img.result'],
+  multiShoot: ['给几个号各出一组', '同一款要发几个号时，每个号按自己的拍法各出一组，图不重复。', 'img.shoot'],
+  unlockCast: ['解锁换人', '这款在这个号已经固定了模特，点这里才能换人。换人会留记录。', 'img.shoot'],
+  castLog: ['改动记录', '看这款换过几次模特、谁换的。', 'img.shoot'],
+  cancelJob: ['停止', '停掉这个正在跑的 AI 任务。', 'hist.ai'],
+  log: ['看过程', '看 AI 这件事做了什么、卡在哪。', 'hist.ai'],
+  pickImg: ['选图', '勾上要用的图，第 1 张是封面。', 'img.result'],
+  imgApprove: ['用这张', 'AI 检查没过的图，你看着能用就点它，放回能选的图里。', 'img.result'],
+  imgInfo: ['参数 / 这批的配方', '看这张图是用哪张参考图、哪个模特、什么要求出的。', 'img.result'],
+  imgReject: ['驳回', '这张图不能用。写文案选不到它，已经用了它的稿会退回待审。', 'img.result'],
+  imgRestore: ['恢复', '把驳回的图恢复回来。', 'img.result'],
+  report: ['看出图报告', '看 AI 对每张图的检查结果和评级。', 'img.result'],
+  toWrite: ['写文案', '用选中的图去写稿。', 'img.result'],
+  newModel: ['新模特', '建一张模特资料卡：正脸、左侧脸、右侧脸、全身 4 张，再写身高体重。', 'img.lib'],
+  modelPhoto: ['模特照片位', '点一下上传或替换这个角度的照片。', 'img.lib'],
+  saveModel: ['保存模特资料', '保存发色、身高体重、身材比例。出图时会写进任务单。', 'img.lib'],
+  newGroup: ['新建一组风格', '自己加一组拍法，比如「书桌房间」，再往里放参考图。', 'img.lib'],
+  editGroup: ['改名和说明', '改这组风格的名字和给 AI 的一句话。', 'img.lib'],
+  delGroup: ['删掉这组', '删掉这组风格（里面的参考图会移到「其他」）。', 'img.lib'],
+  uploadRef: ['上传参考图', '把刷到想模仿的图放进这一组，出图时选这个风格就会带上。', 'img.lib'],
+  delRef: ['移除参考图', '这张参考图不再用。', 'img.lib'],
+  genTopics: ['AI 联网出 10 条', 'AI 上网看最近的热门，给这个号出 10 条选题，放进选题库。', 'copy.topic'],
+  addTopic: ['加入', '把自己想的选题加进选题库。', 'copy.topic'],
+  useTopic: ['写这条', '用这条选题去写稿，会自动标成已用。', 'copy.topic'],
+  unuseTopic: ['标回没用', '这条选题还没真用上，放回没用过的里。', 'copy.topic'],
+  delTopic: ['删掉选题', '从选题库删掉这一条。', 'copy.topic'],
+  write: ['交给 AI 写', 'AI 按选好的图和选题写稿，写好放进「审稿」，不会自动发。', 'copy.write'],
+  pickReview: ['选一篇稿', '左边点一篇，右边审它。', 'copy.review'],
+  rewrite: ['让 AI 改', '在左边框里说一句怎么改，AI 照着改这篇。', 'copy.review'],
+  quickRw: ['快捷改稿', '常用的改法一键交给 AI，比如更口语、更短。', 'copy.review'],
+  paste: ['粘贴 GPT 写的', '在别处写好的文案粘进来，自动拆成标题、正文和话题。', 'copy.review'],
+  saveDraft: ['保存', '保存改动，稿还留在审稿里。', 'copy.review'],
+  reject: ['驳回', '这篇不要了，进「历史记录 › 没发出 / 驳回」，以后可以改了再审。', 'copy.review'],
+  delDraft: ['删除', '彻底删掉这篇稿。', 'copy.review'],
+  finalize: ['文案定稿，去发布', '这篇改好了，交给「发布」排时间。红色问题要先改掉才能点。', 'copy.review'],
+  dropClash: ['去掉撞车的图', '这几张图别的号已经用过，去掉免得重复。', 'copy.review'],
+  dropRejected: ['去掉驳回的图', '把已经驳回的图从这篇去掉。', 'copy.review'],
+  editRejected: ['改了再审', '把驳回的稿拿回「审稿」重新改。', 'hist.fail'],
+  preset: ['套用预设', '一键填上这个号的定位、口吻等文案设定，之后还能改。', 'copy.set'],
+  saveCopy: ['保存设定', '保存账号定位、口吻、必写内容和禁用词，之后每篇都按这个写。', 'copy.set'],
+  pickLogo: ['换一张 logo', '换封面上用的 logo 图。', 'copy.set'],
+  trial: ['按现在的设定试写', '用一件新款试写一篇看口吻对不对，不进审稿。', 'copy.set'],
+  pickPub: ['选一篇定稿', '左边点一篇，右边调封面和时间。', 'pub.queue'],
+  img: ['设为封面 / 挪位置 / 不用这张', '调整发布时图片的顺序，第 1 张是封面。', 'pub.queue'],
+  when: ['选发布时间', '选一个推荐时间，或者自己定。到点工作台开浏览器直接发。', 'pub.queue'],
+  tryFill: ['只填不发试一次', '打开发布页把标题、正文、图片都填好，但不点发布，给你截图看对不对。第一次发之前一定试一次。', 'pub.queue'],
+  approve: ['确认排期', '定好时间。到点工作台自己发，Mac 要开着、工作台要开着。', 'pub.queue'],
+  backToCopy: ['文案还要改', '退回「审稿」再改。', 'pub.queue'],
+  copyComment: ['复制置顶评论', '复制好，发出去后到 App 里贴到评论区并置顶。', 'pub.queue'],
+  package: ['导出发布包', '把图和文案导出到一个文件夹，自己在 App 里手动发。', 'pub.queue'],
+  unsched: ['取消排期', '这篇先不发了，回到「待发布」里可以重新排。', 'pub.queue'],
+  pauseAll: ['全部暂停', '所有号都先不发。遇到验证码、账号异常时先点它，处理好再点「恢复发布」。', 'pub.cal'],
+  resumeBrake: ['恢复发布', '问题处理好了，到点的稿接着发。', 'pub.cal'],
+  wk: ['上一周 / 本周 / 下一周', '翻排期日历。', 'pub.cal'],
+  calMode: ['只看这个号 / 全部号', '切换只看当前号，还是整个矩阵哪天谁发什么。', 'pub.cal'],
+  slot: ['一条排期', '看这条排期的详情和发布过程。', 'pub.cal'],
+  login: ['扫码登录', '打开小红书登录页，用手机 App 扫码。扫好点「我扫好了」。', 'pub.login'],
+  checkLogin: ['我扫好了', '扫完码点它，工作台确认登录成功。', 'pub.login'],
+  renameAcc: ['改名', '改这个号在工作台里显示的名字。', 'pub.login'],
+  addAcc: ['加一个号', '写名字、选人设，拍法、封面和文案口吻一次填好。新注册的号前几周会自动少排几篇。', 'pub.login'],
+  reschedule: ['重新排期', '没发出去的稿重新选个时间。', 'hist.fail'],
+  goItem: ['去填', '跳到这款的资料页。', 'img.info'],
+  goSub: ['去看', '跳到对应的页面。', ''],
+  goLogin: ['去登录', '跳到「发布 › 账号登录」。', 'pub.login'],
+};
+const SPECIAL = {aiBtn: ['AI 任务', '正在跑的 AI 任务。点开看进度，失败了看原因。', 'hist.ai'], btnSettings: ['设置', '锁图工作台位置、codex 路径、错过多久不补发等。', ''],
+  online: ['小红书登录状态', '绿点是已登录。没登录点这里去扫码。', 'pub.login'], btnHelp: ['搜帮助', '输入关键词（比如“验证码”“换封面”），找到说明，点一下跳过去。', ''],
+  btnExplain: ['按钮说明', '打开后点任何按钮只看说明不执行；再点一次关掉。', '']};
+const FAQ = [
+  ['发布弹验证码 / 账号异常', '先到「发布 › 排期日历」点「全部暂停」，到小红书 App 或浏览器里把验证做完，再点「恢复发布」。', 'pub.cal'],
+  ['显示小红书未登录 / 登录过期', '到「发布 › 账号登录」点「扫码登录」，用手机扫码后点「我扫好了」。', 'pub.login'],
+  ['到点没发出去', 'Mac 要开机、别合盖、工作台要开着。错过 30 分钟以上不补发，到「历史记录 › 没发出 / 驳回」点「重新排期」。', 'hist.fail'],
+  ['第一次发之前怎么检查', '在「发布 › 待发布」点「只填不发试一次」，看截图没问题再「确认排期」。', 'pub.queue'],
+  ['怎么换封面 / 调图片顺序', '在「发布 › 待发布」里，图片下面点「设为封面」或左右箭头。', 'pub.queue'],
+  ['出图人脸不对 / 模特不像', '到「产品图 › 模特和参考图库」补齐模特的正脸、左侧脸、右侧脸、全身 4 张。', 'img.lib'],
+  ['每个号用固定模特', '到「产品图 › 模特和参考图库」的「每个号固定用谁」里选。', 'img.lib'],
+  ['AI 任务失败了', '点左下角的 AI 任务看原因，或者到「历史记录 › AI 任务」点「看过程」。', 'hist.ai'],
+  ['出图说找不到锁图工作台', 'xhs-lock-studio 没装，或者位置不对。到「设置 › 高级」填它的文件夹位置。', ''],
+  ['加一个新号（街拍号、测评号）', '到「发布 › 账号登录」最下面写名字、选人设，点「加一个号」。', 'pub.login'],
+  ['AI 标注要不要勾', '默认勾上；全是实拍图的可以不勾。在「发布 › 待发布」确认排期前改。', 'pub.queue'],
+  ['文案口吻不对', '到「文案 › 文案设定」改账号定位和口吻，右边可以试写一篇看看。', 'copy.set'],
+];
+const pageName = k => { if (!k) return ''; const [t, s] = k.split('.'); const T = TABS.find(x => x[0] === t); const S = (subsOf(t) || []).find(x => x[0] === s); return T ? `${T[2]}${S ? ' › ' + S[1].replace(/（\d+）$/, '') : ''}` : ''; };
+
+// 开局 5 步：每台新电脑 / 新号都走一遍；做完自动收起
+const G = {hide: false, tried: false};
+try { Object.assign(G, JSON.parse(localStorage.getItem('xhs-studio-guide') || '{}')); } catch (e) {}
+const saveG = () => { try { localStorage.setItem('xhs-studio-guide', JSON.stringify(G)); } catch (e) {} };
+function starterSteps() {
+  const a = acc() || {};
+  return [
+    ['扫码登录小红书', a.online, 'pub', 'login'],
+    ['设好这个号的文案口吻', !!String(a.position || '').trim(), 'copy', 'set'],
+    ['建一张齐全的模特资料卡（正脸 / 左侧 / 右侧 / 全身）', D.lock.models.some(m => !(m.missing || []).length), 'img', 'lib'],
+    ['给这个号固定一个模特', !!a.cast, 'img', 'lib'],
+    ['拿 1 款衣服走一遍，发之前点「只填不发试一次」', G.tried || D.reviews.some(r => r.status === '已发布'), 'pub', 'queue'],
+  ];
+}
+// 平时的「下一步」：按流程从前往后找第一件要人做的事
+function nextStep() {
+  const a = acc(), R = mine(D.reviews), items = myItems(), st = D.stats[String(UI.acc)] || {};
+  if (!a) return ['先加一个小红书号', '去加号', {tab: 'pub', sub: 'login'}];
+  if (!a.online) return [`「${a.name}」还没登录小红书`, '去扫码', {tab: 'pub', sub: 'login'}];
+  if (st.failed) return [`有 ${st.failed} 篇没发出去`, '去看', {tab: 'hist', sub: 'fail'}];
+  const todo = R.filter(r => draftState(r) === 'todo').length;
+  if (todo) return [`${todo} 篇稿等你审`, '去审稿', {tab: 'copy', sub: 'review'}];
+  const ready = R.filter(r => draftState(r) === 'ready').length;
+  if (ready) return [`${ready} 篇定稿了还没排时间`, '去排期', {tab: 'pub', sub: 'queue'}];
+  const idle = items.filter(i => !i.busy);
+  const fix = idle.find(i => ['缺正面图', '待写档案', '档案待核对'].includes(i.stage));
+  if (fix) return [`「${fix.name}」${fix.stage}`, '去补', {item: fix.id, tab: 'img', sub: 'info'}];
+  const shoot = idle.find(i => i.stage === '待出图');
+  if (shoot) return [`「${shoot.name}」资料齐了，可以出图`, '去出图', {item: shoot.id, tab: 'img', sub: 'shoot'}];
+  const done = idle.find(i => i.stage === '图已出好' && !R.some(r => r.item === i.id));
+  if (done) return [`「${done.name}」的图出好了，挑图写文案`, '去挑图', {item: done.id, tab: 'img', sub: 'result'}];
+  if (activeJobs().length) return ['AI 正在干活，做完会出现在对应的页面', '看进度', {tab: 'hist', sub: 'ai'}];
+  return ['手上的都处理完了，可以上新下一款', '上新一款', {add: true}];
+}
+function renderGuide() {
+  const steps = starterSteps(), left = steps.filter(s => !s[1]).length;
+  if (left && !G.hide) {
+    const cur = steps.findIndex(s => !s[1]);
+    return `<div class="starter"><div class="h"><b>开局 5 步 · 还剩 ${left} 步</b><button type="button" class="link" data-g="hide">收起</button></div><ol>${steps.map(([t, ok, tab, sub], i) =>
+      `<li class="${ok ? 'ok' : i === cur ? 'cur' : ''}"><span class="ck">${ok ? '✓' : i + 1}</span><span class="t">${esc(t)}</span>${ok ? '' : `<button type="button" class="${i === cur ? 'primary' : 'ghost'}" data-g="go" data-tab="${tab}" data-sub="${sub}">去做</button>`}</li>`).join('')}</ol></div>`;
+  }
+  const [t, btn, to] = nextStep(), fin = !!to.add;
+  return `<div class="nextbar ${fin ? 'done' : ''}"><span><b>下一步</b>　${esc(t)}${left ? ` <button type="button" class="link" data-g="show">（开局还剩 ${left} 步）</button>` : ''}</span>
+    <button type="button" class="primary" data-g="${fin ? 'add' : 'go'}" data-tab="${to.tab || ''}" data-sub="${to.sub || ''}" data-item="${esc(to.item || '')}">${esc(btn)} →</button></div>`;
+}
+document.addEventListener('click', e => {
+  const g = e.target.closest('[data-g]'); if (!g || document.body.classList.contains('explain')) return;
+  e.stopPropagation();
+  const k = g.dataset.g;
+  if (k === 'hide' || k === 'show') { G.hide = k === 'hide'; saveG(); render(); return; }
+  if (k === 'add') { go('img', 'info'); setTimeout(() => { const b = document.querySelector('[data-do="addItem"]'); if (b) b.click(); }, 0); return; }
+  if (g.dataset.item) UI.item = g.dataset.item;
+  go(g.dataset.tab, g.dataset.sub);
+}, true);
+
+// 按钮说明：打开后点按钮只弹说明，不执行
+function helpOf(el) {
+  if (el.id && SPECIAL[el.id]) return SPECIAL[el.id];
+  if (el.dataset.g) return ['向导', el.dataset.g === 'hide' ? '收起开局清单，下一步条还在。' : '跳到要做的那一页。', ''];
+  if (el.dataset.do && HELP[el.dataset.do]) return HELP[el.dataset.do];
+  if (el.dataset.tab) {
+    const k = el.dataset.tab + '.' + (el.dataset.sub || (subsOf(el.dataset.tab) || [[]])[0][0]);
+    return [el.dataset.sub ? pageName(k) : (TABS.find(t => t[0] === el.dataset.tab) || [])[2], DESC[k] || '', ''];
+  }
+  return null;
+}
+function bubble(el, h) {
+  const b = $('#helpBubble');
+  b.innerHTML = `<b>${esc(h[0])}</b>${esc(h[1] || '点了会直接执行这个操作。')}<div class="w">再点一次「？按钮说明」关掉说明模式</div>`;
+  b.hidden = false;
+  const r = el.getBoundingClientRect(), w = Math.min(300, innerWidth - 24);
+  b.style.left = Math.max(12, Math.min(r.left, innerWidth - w - 12)) + 'px';
+  const below = r.bottom + 8, hgt = b.offsetHeight;
+  b.style.top = (below + hgt > innerHeight - 12 ? Math.max(12, r.top - hgt - 8) : below) + 'px';
+}
+document.addEventListener('click', e => {
+  if (!document.body.classList.contains('explain')) { $('#helpBubble').hidden = true; return; }
+  const el = e.target.closest('[data-do],[data-tab],[data-g],#aiBtn,#btnSettings,#online,#btnHelp,.drop');
+  if (!el || el.id === 'btnExplain' || el.closest('dialog')) { if (!el || el.id !== 'btnExplain') $('#helpBubble').hidden = true; return; }
+  e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+  bubble(el, el.classList.contains('drop') ? ['照片位', '点一下选照片，或者直接把照片拖进来。', ''] : helpOf(el) || [el.textContent.trim() || '按钮', '', '']);
+}, true);
+// 鼠标停在按钮上也有一句提示（已有提示的不覆盖）
+function addTitles() {
+  document.querySelectorAll('.app [data-do]').forEach(el => { const h = HELP[el.dataset.do]; if (h && !el.title) el.title = h[1]; });
+}
+$('#btnExplain').onclick = () => {
+  const on = !document.body.classList.contains('explain');
+  document.body.classList.toggle('explain', on);
+  $('#btnExplain').setAttribute('aria-pressed', on);
+  $('#helpBubble').hidden = true;
+  toast(on ? '说明模式：点任何按钮只看它是干什么的，不会执行' : '已关掉说明模式');
+};
+
+// 帮助搜索：常见问题 + 每一页 + 每个按钮
+function helpIndex() {
+  const out = FAQ.map(([q, a, p]) => ({t: q, a, p, kind: '常见问题'}));
+  for (const [t] of TABS) for (const [s] of subsOf(t)) { const k = t + '.' + s; if (DESC[k]) out.push({t: pageName(k), a: DESC[k], p: k, kind: '页面'}); }
+  const seen = new Set();
+  for (const [d, [t, a, p]] of Object.entries(HELP)) { if (!p || seen.has(t + p)) continue; seen.add(t + p); out.push({t, a, p, kind: '按钮', d}); }
+  return out;
+}
+function searchHelp(q) {
+  const terms = q.trim().toLowerCase().split(/\s+/).filter(Boolean), all = helpIndex();
+  if (!terms.length) return all.filter(x => x.kind === '常见问题');
+  return all.map(x => { const t = x.t.toLowerCase(), a = (x.a + ' ' + pageName(x.p)).toLowerCase();
+    let sc = 0; for (const w of terms) { if (t.includes(w)) sc += 3; else if (a.includes(w)) sc += 1; else return null; }
+    return [sc + (x.kind === '常见问题' ? 1 : 0), x]; }).filter(Boolean).sort((a, b) => b[0] - a[0]).slice(0, 12).map(x => x[1]);
+}
+$('#btnHelp').onclick = () => {
+  if (document.body.classList.contains('explain')) return;
+  openDlg(`<h2>搜帮助</h2><input id="hq" placeholder="输入关键词，例如：验证码、封面、没发出、模特" autocomplete="off"><div class="hres" id="hres"></div>` + closeBtn, () => {}, f => {
+    const draw = () => { const res = searchHelp($('#hq').value); $('#hres').innerHTML = res.map((x, i) => `<button type="button" data-hi="${i}"><b>${esc(x.t)}</b><span>${esc(x.kind)}${x.p ? ' · ' + esc(pageName(x.p)) : ''}　${esc(x.a)}</span></button>`).join('') || '<div class="empty">没找到。换个说法，或者打开「？按钮说明」直接点按钮看。</div>';
+      $('#hres').onclick = e => { const b = e.target.closest('[data-hi]'); if (!b) return; const x = res[+b.dataset.hi]; $('#dlg').close();
+        if (x.p) { const [t, s] = x.p.split('.'); go(t, s); }
+        if (x.d) setTimeout(() => { const el = document.querySelector(`.app [data-do="${x.d}"]`); if (el) { el.scrollIntoView({block: 'center', behavior: 'smooth'}); el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 3400); } else toast('这个按钮要先选好一款 / 一篇稿才会出现'); }, 60); };
+    };
+    $('#hq').oninput = draw; draw(); $('#hq').focus();
+  });
+};
+
 document.addEventListener('toggle', async e => {
   if (e.target.id !== 'promptBox' || !e.target.open) return;
   let j = null;
@@ -1314,6 +1602,19 @@ document.addEventListener('click', async e => {
     case 'pickLogo': $('#logoFile').click(); break;
     case 'style': { const cur = D.items.find(i => i.id === UI.item); if (cur) initPick(cur, b.dataset.k); render(); break; }
     case 'pickModel': PICK.model = b.dataset.name; render(); break;
+    case 'addPiece': case 'renamePiece': case 'renameMain': {
+      const add = b.dataset.do === 'addPiece', main = b.dataset.do === 'renameMain';
+      const cur = main ? (it.mainPiece || '') : add ? '' : ((it.pieces || []).find(p => p.id === b.dataset.piece) || {}).name;
+      openDlg(`<h2>${add ? '套装再加一件' : '改名'}</h2><label class="f">这件是什么<input id="pcName" value="${esc(cur)}" placeholder="${main ? '例：西装外套' : '例：半裙'}" maxlength="10"></label>` + btns(add ? '加上' : '保存'), async () => {
+        const name = $('#pcName').value.trim(); if (!name) { toast('写个名字'); return false; }
+        const j = await api('/api/item/piece', {id, action: add ? 'add' : main ? 'main' : 'rename', piece: b.dataset.piece, name});
+        if (j && add) toast('加好了，把这件的正面、背面、细节照放进来，再重写一次档案');
+        return !!j;
+      });
+      break; }
+    case 'delPiece': dlgConfirm('删掉这一件？', '这件的照片会挪进原图目录的 _removed 文件夹。删完要重写档案。', '删掉', () => api('/api/item/piece', {id, action: 'delete', piece: b.dataset.piece})); break;
+    case 'resumeBrake': dlgConfirm('恢复所有号的发布？', '确认问题处理好了。错过时间超过 30 分钟的稿不会补发，会进「历史 › 没发出」，可以重新排期。', '恢复发布', async () => { if (await api('/api/brake', {action: 'resume'})) toast('已恢复，到点的稿会照常发'); }); break;
+    case 'pauseAll': dlgConfirm('所有号都先暂停发布？', '到点的稿不会发，直到你点「恢复发布」。', '全部暂停', async () => { if (await api('/api/brake', {action: 'pause'})) toast('已暂停所有号的发布'); }); break;
     case 'unlockCast': {
       const c = castOf(id);
       openDlg(`<h2>解锁「${esc(it.name)}」的模特</h2><p class="small muted" style="margin:0">现在在「${esc((acc() || {}).name || '')}」固定用 ${esc(castText(c))}。解锁后下次出图重新选，选好又会固定下来。会留一条记录。</p>
@@ -1350,6 +1651,8 @@ document.addEventListener('click', async e => {
         return !!j;
       });
       break;
+    case 'lockRest': { const j = await api('/api/lock/rest', {batch: b.dataset.batch}); if (j) toast(`开始出剩下的 ${j.job.params.refs.length} 张，约 ${j.job.estimateMin} 分钟`); break; }
+    case 'imgApprove': { const why = prompt('为什么这张可以用？（会记下来）', '没过检查，人工看过可以用'); if (why !== null && await api('/api/image', {action: 'approve', path: b.dataset.p, why})) toast('已放回这批，标「人工」'); break; }
     case 'imgRestore': if (await api('/api/image', {action: 'restore', path: b.dataset.p})) toast('已恢复'); break;
     case 'dropRejected': { const bad = D.imgRejected || {}; if (await api('/api/review', {account: UI.acc, id, action: 'images', images: (r.images || []).filter(p => !bad[p])})) toast('已去掉'); break; }
     case 'pickRef': { const i = PICK.refs.indexOf(b.dataset.ref); if (i >= 0) PICK.refs.splice(i, 1); else PICK.refs.push(b.dataset.ref); render(); break; }
@@ -1358,8 +1661,9 @@ document.addEventListener('click', async e => {
     case 'lock': {
       const params = {item: id, account: UI.acc, face: PICK.face, model: PICK.model, refs: PICK.refs, style: PICK.style, note: ($('#lockNote') || {}).value || ''};
       if (PICK.autoWrite && UI.acc) params.autoWrite = {account: UI.acc, count: PICK.split};
+      params.trial = PICK.trial && PICK.refs.length > 1;
       const j = await api('/api/job', {kind: 'lock', params});
-      if (j) { PICK.reuse = ''; toast(`已开始出图，约 ${j.job.estimateMin} 分钟${params.autoWrite ? '，出完自动写文案' : ''}`); }
+      if (j) { PICK.reuse = ''; toast(params.trial ? `先试出 1 张，约 ${j.job.estimateMin} 分钟；好了在「出好的图」看一眼，再出剩下的` : `已开始出图，约 ${j.job.estimateMin} 分钟${params.autoWrite ? '，出完自动写文案' : ''}`); }
       break; }
     case 'dropClash': { const used = ((r.clash || {}).images || []).map(u => u.img); if (await api('/api/review', {account: UI.acc, id, action: 'images', images: (r.images || []).filter(p => !used.includes(p))})) toast('已去掉，可以定稿了'); break; }
     case 'calMode': UI.calAll = b.dataset.k === 'all'; save(); render(); break;
@@ -1453,6 +1757,7 @@ document.addEventListener('click', async e => {
     case 'when': UI.when = b.dataset.k; render(); break;
     case 'approve': approveFlow(r); break;
     case 'tryFill': {
+      G.tried = true; saveG();
       toast('正在打开发布页试填，大约 1 分钟…');
       const j = await api('/api/publish/try', {account: UI.acc, id, markAi: UI.markAi});
       if (!j) break;

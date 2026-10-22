@@ -1,8 +1,12 @@
-# 小红书女装工作台
+# the rumah小红书工作台
 
 给女装团队用的小红书图文工作台：产品图（对镜自拍 / 街拍）→ 选题和文案 → 到点由浏览器自动发布 → 历史记录。出图依赖 [xhs-lock-studio](https://github.com/znnw4m6k7k-dotcom/xhs-lock-studio)。
 
+**第一次用？看 [使用说明.md](使用说明.md)**：安装、第一次设置、1 款 × 1 号试跑、出问题怎么办。
+
 ## 第一次安装（把这段发给 Codex）
+
+仓库是私有的，先让管理员把你的 GitHub 账号加成协作者，并在邮箱里接受邀请。
 
 ```
 把 https://github.com/znnw4m6k7k-dotcom/xhs-workbench 克隆到 ~/xhs-workbench，然后运行 bash ~/xhs-workbench/install.sh。
