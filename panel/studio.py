@@ -7,7 +7,8 @@
   python3 studio.py checks <款>                  # 看检查要点（标了「待确认」的要对着实物看）
   python3 studio.py confirm <款>                 # 档案核对无误
   python3 studio.py info <款> --texture 软糯不扎 --pain 小个子穿长外套显矮   # 填好就自动给这款出 5 条选题
-  python3 studio.py shoot <款> [--style mirror|street|own] [--model 小禾|--ai|--hide] [--refs 1,3,4] [--split] [--no-write]
+  python3 studio.py shoot <款> [--style mirror|street|own|自己加的组名] [--model 小禾|--ai|--hide|--still] [--refs 1,3,4] [--split] [--no-write]
+                                  不指定时按这个号上次的拍法；--still 是参考图里没有人的静物（挂拍、平铺）
   python3 studio.py topics [--gen [--node 双11]] [--add "选题"]   # 看选题库 / 联网出 10 条 / 手动加
   python3 studio.py write <款> [--images a.png,b.png] [--topic 编号或几个字] [--split]
   python3 studio.py drafts                       # 待审稿件和问题
@@ -213,9 +214,14 @@ def c_shoot(a):
     it = find_item(D, a.item)
     acc = pick_account(D, a.account)
     lp = D.get("lastPick") or {}
-    style = a.style or lp.get("style") or "mirror"
-    face = "ai" if a.ai else "hide" if a.hide else "model" if a.model else (lp.get("faceByStyle") or {}).get(style) or ("hide" if style == "mirror" else lp.get("face") or "model")
-    model = a.model or lp.get("model") or ""
+    mine = (lp.get("byAcc") or {}).get(str(acc["id"])) or {}   # 这个号上次的拍法
+    styles = D["styles"]
+    if a.style and a.style not in styles and a.style != "own":
+        a.style = next((k for k, v in styles.items() if v == a.style), None) or die("没有「%s」这组风格（有：%s）" % (a.style, "、".join(styles.values())))
+    style = a.style or mine.get("style") or lp.get("style") or "mirror"
+    face = ("ai" if a.ai else "hide" if a.hide else "none" if a.still else "model" if a.model else
+            (mine.get("face") if style == mine.get("style") else None) or (lp.get("faceByStyle") or {}).get(style) or ("hide" if style == "mirror" else lp.get("face") or "model"))
+    model = a.model or mine.get("model") or lp.get("model") or ""
     models = D["lock"]["models"]
     if face == "model":
         if not model or not any(m["name"] == model for m in models):
@@ -228,17 +234,19 @@ def c_shoot(a):
             chosen = [refs[int(x) - 1] for x in a.refs.split(",")]
         except (ValueError, IndexError):
             chosen = [r for r in refs if any(k and k in Path(r).stem for k in a.refs.split(","))]
-    elif style in ("mirror", "street"):
+    elif style == mine.get("style") and [r for r in mine.get("refs") or [] if r in refs]:
+        chosen = [r for r in mine["refs"] if r in refs]
+    elif style != "own":
         chosen = [r for r in refs if D["lock"]["refStyles"].get(r) == style][:6]
     else:
         chosen = [r for r in (lp.get("refsByCat") or {}).get(it.get("category") or "其他", []) if r in refs] or refs[:4]
     if not chosen:
         die("参考图库是空的，或者没对上。refs 看编号")
-    p = {"item": it["id"], "face": face, "model": model, "refs": chosen, "style": style, "note": a.note or ""}
+    p = {"item": it["id"], "account": acc["id"], "face": face, "model": model, "refs": chosen, "style": style, "note": a.note or ""}
     if not a.no_write:
-        p["autoWrite"] = {"account": acc["id"], "count": 2 if a.split else 1, "coverText": True}
+        p["autoWrite"] = {"account": acc["id"], "count": 2 if a.split else 1}
     j = call("api/job", {"kind": "lock", "params": p})
-    who = {"model": "模特 " + model, "ai": "AI 脸", "hide": "不露脸"}[face]
+    who = {"model": "模特 " + model, "ai": "AI 脸", "hide": "不露脸", "none": "没有人的静物"}[face]
     print("✓ 开始出图：%s，%s，%d 张（%s），约 %d 分钟。%s" % (
         it["name"], who, len(chosen), "、".join(Path(r).stem for r in chosen), j["job"]["estimateMin"],
         "出完自动挑 A 级图写文案，写好进审稿。" if not a.no_write else "出完不自动写文案。"))
@@ -252,10 +260,11 @@ def c_write(a):
         imgs = a.images.split(",")
     else:
         last = next((j for j in it.get("lockJobs") or [] if j["images"]), None)
-        if not last:
-            die("%s 还没有出好的图" % it["name"])
+        if not last and not it.get("realPhotos"):
+            die("%s 还没有出好的图，也没有实拍图" % it["name"])
         g = it.get("grades") or {}
-        imgs = [p for p in last["images"] if (g.get(p) or {}).get("grade") == "A"] or last["images"]
+        imgs = ([p for p in last["images"] if (g.get(p) or {}).get("grade") == "A"] or last["images"]) if last else []
+        imgs += it.get("realPhotos") or []   # 实拍图接在 AI 图后面
     un = [t for t in D["topics"] if str(t["account"]) == str(acc["id"]) and t["status"] == "unused"]
     t = None
     if a.topic:
@@ -263,7 +272,7 @@ def c_write(a):
     else:
         t = next((x for x in un if x.get("item") == it["id"]), None)
     call("api/job", {"kind": "write", "params": {"account": acc["id"], "item": it["id"], "images": imgs, "topic": t["id"] if t else "",
-                                                "count": 2 if a.split else 1, "coverText": True, "note": a.note or ""}})
+                                                "count": 2 if a.split else 1, "note": a.note or ""}})
     print("✓ 已交给 AI 写文案（%d 张图%s），写好进审稿。" % (len(imgs), "，选题「%s」" % t["text"] if t else ""))
 
 
@@ -398,8 +407,9 @@ def c_models(a):
 
 
 def c_refs(a):
-    for n, r in enumerate(state()["lock"]["refs"], 1):
-        print("%d. %s" % (n, Path(r).stem))
+    D = state()
+    for n, r in enumerate(D["lock"]["refs"], 1):
+        print("%d. %s  [%s]" % (n, Path(r).stem, D["styles"].get(D["lock"]["refStyles"].get(r), "其他")))
 
 
 def main():
@@ -413,7 +423,7 @@ def main():
     x = sp.add_parser("confirm"); x.add_argument("item")
     x = sp.add_parser("info"); x.add_argument("item"); x.add_argument("--texture"); x.add_argument("--pain"); x.add_argument("--modelSize"); x.add_argument("--goods"); x.add_argument("--price")
     x = sp.add_parser("topics"); x.add_argument("--gen", action="store_true"); x.add_argument("--node"); x.add_argument("--add")
-    x = sp.add_parser("shoot"); x.add_argument("item"); x.add_argument("--style", choices=["mirror", "street", "own"]); x.add_argument("--model"); x.add_argument("--ai", action="store_true"); x.add_argument("--hide", action="store_true")
+    x = sp.add_parser("shoot"); x.add_argument("item"); x.add_argument("--style"); x.add_argument("--model"); x.add_argument("--ai", action="store_true"); x.add_argument("--hide", action="store_true"); x.add_argument("--still", action="store_true")
     x.add_argument("--refs"); x.add_argument("--split", action="store_true"); x.add_argument("--no-write", action="store_true"); x.add_argument("--note")
     x = sp.add_parser("write"); x.add_argument("item"); x.add_argument("--images"); x.add_argument("--topic"); x.add_argument("--split", action="store_true"); x.add_argument("--note")
     sp.add_parser("drafts")

@@ -596,5 +596,94 @@ class PanelTests(unittest.TestCase):
         self.assertIsNone(self.m.AWAKE["proc"])
 
 
+    # ---------------------------------------------------------------- 三个号：拍法、实拍图、封面样式
+    def b64(self, raw=None):
+        return "data:image/png;base64," + self.m.base64.b64encode(raw or self.image.read_bytes()).decode()
+
+    def test_70_style_groups_and_account_preset(self):
+        root, it = self.lock_setup()
+        self.m.r_account({"name": "the rumah daily"})
+        g = self.m.r_style_group({"action": "add", "name": "书桌房间", "note": "白墙木地板中古书桌，裁到下巴以下"})["group"]
+        with self.assertRaises(ValueError):
+            self.m.r_style_group({"action": "add", "name": "对镜自拍"})
+        st = self.m.api_state()
+        self.assertEqual(list(st["styles"].values()), ["对镜自拍", "街拍", "书桌房间", "其他"])
+        up = self.m.r_ref_upload({"name": "desk.png", "data": self.b64(), "style": g["id"]})
+        self.assertEqual(self.m.api_state()["lock"]["refStyles"][up["path"]], g["id"])
+        self.run_one(self.m.r_job({"kind": "spec", "params": {"item": it["id"]}})["job"])
+        self.m.r_item_checks({"id": it["id"], "confirmed": True})
+        job = self.m.r_job({"kind": "lock", "params": {"item": it["id"], "account": "2", "face": "hide", "style": g["id"], "refs": [up["path"]]}})["job"]
+        md = (Path(job["params"]["jobDir"]) / "job.md").read_text("utf-8")
+        self.assertIn("书桌房间：白墙木地板中古书桌", md)
+        self.assertIn("书桌房间", job["title"])
+        self.assertIn("「书桌房间」", job["prompt"])
+        # 记在这个号名下，别的号不受影响
+        lp = self.m.load_state()["lastPick"]["byAcc"]
+        self.assertEqual(lp["2"], {"style": g["id"], "face": "hide", "model": "", "refs": [up["path"]]})
+        self.assertNotIn("1", lp)
+        self.m.update_job(job["id"], status="done")
+        # 静物：参考图里没有人
+        job = self.m.r_job({"kind": "lock", "params": {"item": it["id"], "account": "1", "face": "none", "refs": self.m.list_refs()[:1]}})["job"]
+        self.assertIn("没有人", (Path(job["params"]["jobDir"]) / "job.md").read_text("utf-8"))
+        self.assertIn("静物", job["params"]["jobDir"])
+        self.assertEqual(job["estimateMin"], 3)
+        # 删组：图回到其他，记住的拍法改成自己挑
+        self.m.r_style_group({"action": "delete", "id": g["id"]})
+        self.assertEqual(self.m.api_state()["lock"]["refStyles"][up["path"]], "other")
+        self.assertEqual(self.m.load_state()["lastPick"]["byAcc"]["2"]["style"], "own")
+        with self.assertRaises(ValueError):
+            self.m.r_style_group({"action": "delete", "id": "mirror"})
+
+    def test_71_real_photos_mix_with_ai_images(self):
+        root, it = self.lock_setup()
+        up = self.m.r_item_real({"id": it["id"], "action": "add", "name": "挂拍 1.jpg", "data": self.b64()})
+        self.assertTrue(up["path"].startswith(str(self.m.item_dir(it) / "real")))
+        v = next(x for x in self.m.api_state()["items"] if x["id"] == it["id"])
+        self.assertEqual(v["realPhotos"], [up["path"]])
+        self.assertEqual(v["photos"]["front"], str(self.m.item_dir(it) / "front.png"))   # 实拍图不占产品照片的位置
+        # 只有实拍图也能写文案
+        w = self.m.r_job({"kind": "write", "params": {"account": "1", "item": it["id"], "images": [up["path"]]}})["job"]
+        self.assertIn(up["path"], w["prompt"])
+        self.m.update_job(w["id"], status="done")
+        # 出图后自动写文案：A 级图后面接上实拍图
+        self.run_one(self.m.r_job({"kind": "spec", "params": {"item": it["id"]}})["job"])
+        self.m.r_item_checks({"id": it["id"], "confirmed": True})
+        job = self.m.r_job({"kind": "lock", "params": {"item": it["id"], "face": "ai", "refs": self.m.list_refs(), "autoWrite": {"account": "1", "count": 1}}})["job"]
+        self.run_one(job)
+        self.m.chain_after(job)
+        w = self.m.load_state()["jobs"][-1]
+        self.assertEqual([Path(x).name for x in w["params"]["images"]], ["演示_01.png", Path(up["path"]).name])
+        self.m.r_item_real({"id": it["id"], "action": "delete", "path": up["path"]})
+        self.assertEqual(self.m.real_photos(it), [])
+        with self.assertRaises(ValueError):
+            self.m.r_item_real({"id": it["id"], "action": "delete", "path": str(self.image)})
+
+    def test_72_cover_style_per_account(self):
+        root, it = self.lock_setup()
+        img = str(self.m.item_dir(it) / "front.png")
+        write = lambda **kw: self.m.r_job({"kind": "write", "params": dict({"account": "1", "item": it["id"], "images": [img]}, **kw)})["job"]
+        self.assertEqual(self.m.api_state()["accounts"][0]["cover"], "text")      # 老账号默认还是加大字
+        self.assertIn("封面加字", write()["prompt"])
+        self.m.r_account_cover({"id": "1", "cover": "none"})
+        j = write()
+        self.assertEqual(j["params"]["cover"], "none")
+        self.assertIn("不要加字", j["prompt"])
+        self.assertIn("封面加字", write(coverText=True)["prompt"])               # 老的调用方式还能用
+        with self.assertRaises(ValueError):
+            self.m.r_account_cover({"id": "1", "cover": "logo"})
+        with self.assertRaises(ValueError):
+            write(cover="logo")
+        self.m.r_account_cover({"id": "1", "cover": "logo", "logo": self.b64()})
+        a = self.m.api_state()["accounts"][0]
+        self.assertEqual(a["cover"], "logo")
+        self.assertTrue(Path(a["logo"]).is_file())
+        p = write()["prompt"]
+        self.assertIn("品牌水印", p)
+        self.assertIn(a["logo"], p)
+        self.assertNotIn("封面加字", p)
+        self.m.r_item_real({"id": it["id"], "action": "add", "name": "实拍", "data": self.b64()})
+        self.assertIn("品牌水印", self.m.r_prompt_preview({"account": "1", "item": it["id"]})["prompt"])
+
+
 if __name__ == "__main__":
     unittest.main()

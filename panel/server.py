@@ -57,7 +57,8 @@ DEFAULT_PORT = 17865
 PUBLISHER = HERE.parent / "publisher" / "xhs_publish.py"
 TOPICS_GUIDE = HERE.parent / "references" / "topics.md"
 AWAKE = {"proc": None}
-STYLES = {"mirror": "对镜自拍", "street": "街拍", "other": "其他"}
+STYLES = {"mirror": "对镜自拍", "street": "街拍", "other": "其他"}   # 自带的几组；店里自己加的组存在 state.json 的 styleGroups
+COVERS = {"none": "不加字", "text": "封面加一行大字", "logo": "每张图右下角放品牌水印"}
 
 DEFAULT_SETTINGS = {
     "codex_path": "",
@@ -105,6 +106,7 @@ def load_state():
         st.setdefault("settings", {})
         st.setdefault("topics", [])
         st.setdefault("refStyles", {})
+        st.setdefault("styleGroups", [])
         if not st.get("accounts"):
             st["accounts"] = [{"id": "1", "name": "女装主号", "profile": default_profile()}]
         if st.get("dataVersion", 0) < 4:
@@ -241,7 +243,8 @@ def read_data():
     st = load_state()
     login = st["xhsLogin"]
     accounts = [dict({"id": a["id"], "name": a["name"], "online": bool(login.get(str(a["id"]), {}).get("loggedIn")),
-                      "checkedAt": login.get(str(a["id"]), {}).get("checkedAt")},
+                      "checkedAt": login.get(str(a["id"]), {}).get("checkedAt"),
+                      "cover": account_cover(a), "logo": account_logo(a)},
                      **{k: a.get(k, "") for k in COPY_KEYS}) for a in st["accounts"]]
     reviews = sorted((dict(d) for d in st["drafts"]), key=lambda d: d["id"], reverse=True)
     archive = sorted(({"account_id": v["account"], "title": v["title"], "at": v["at"], "shot": v.get("shot", ""),
@@ -375,6 +378,16 @@ def copy_rules(aid):
 def tag_rule(aid):
     mix = account_copy(aid)["tagMix"]
     return "话题 8–10 个，按 %s 搭配。" % (mix or "款式词 3 个、人群词 2 个、场景词 2 个、季节词 2 个")
+
+
+def account_cover(a):
+    """这个号的封面样式：不加字 / 大字条 / 品牌水印。没设过的按以前的默认（加大字）。"""
+    return a.get("cover") if a.get("cover") in COVERS else "text"
+
+
+def account_logo(a):
+    f = a.get("logo") or ""
+    return f if f and Path(f).is_file() else ""
 
 
 def find_topic(st, tid):
@@ -560,11 +573,13 @@ def chain_after(job):
         pick = [f for f in files if grades[f]["grade"] == "A"] or [f for f in files if grades[f]["grade"] in ("B", "")]
         if not pick:
             raise ValueError("没有 A/B 级图，没自动写文案")
+        it = find_item(load_state(), p["item"])
+        pick += real_photos(it)[:max(0, 9 - len(pick))] if it else []   # 这款传过的实拍图接在 AI 图后面一起用
         a = p["autoWrite"]
         count = a["count"] if len(pick) >= 4 else 1
         t = item_topic(load_state(), a["account"], p["item"])
         r_write_from_images({"account": a["account"], "item": p["item"], "images": pick, "count": count,
-                             "coverText": a["coverText"], "note": a.get("note", ""), "auto": True, "topic": t["id"] if t else ""})
+                             "cover": a.get("cover") or "", "note": a.get("note", ""), "auto": True, "topic": t["id"] if t else ""})
     except (ValueError, OSError) as e:
         update_job(job["id"], summary="出图完成；%s" % e)
 
@@ -726,8 +741,9 @@ FACE_MODES = {
     "model": "换成我们的模特 library/models/{model}（按 SKILL.md 模式 C3「换成我们的模特」三步做：出图时换发型，衣服通过后贴真脸，再融合）",
     "ai": "出完后把脸换成一张不对应任何真人的普通面孔（按 SKILL.md 模式 C 的「换 AI 脸」做）",
     "hide": "构图往下移或让手机挡住脸，成品里看不到眼睛和鼻子（按 SKILL.md 模式 C 的「不露脸」做）",
+    "none": "参考图里没有人（挂拍、平铺、静物），成品也不要出现人；衣架、桌面、布料堆叠、光线和构图都按参考图",
 }
-MIN_PER_IMAGE = {"model": 7, "ai": 3, "hide": 3}
+MIN_PER_IMAGE = {"model": 7, "ai": 3, "hide": 3, "none": 3}
 
 
 def lock_root():
@@ -837,6 +853,7 @@ def item_view(it, rb, st):
     d = item_dir(it)
     it["dir"] = str(d)
     it["photos"] = {k: (str(find_slot(d, k)) if find_slot(d, k) else "") for k in PHOTO_SLOTS}
+    it["realPhotos"] = real_photos(it)
     spec = d / "spec.md"
     text = spec.read_text("utf-8", errors="replace") if spec.is_file() else ""
     it["hasSpec"] = bool(text.strip())
@@ -866,6 +883,12 @@ def item_view(it, rb, st):
     return it
 
 
+def real_photos(it):
+    """这款自己拍的实拍图（上身、挂拍、平铺、手摸面料），不过 AI，直接和 AI 图一起配文案。存在原图目录的 real/ 下。"""
+    d = item_dir(it) / "real"
+    return sorted(str(p) for p in d.iterdir() if p.suffix.lower() in IMG_EXT and p.is_file()) if d.is_dir() else []
+
+
 def list_models():
     md = lock_root() / "library" / "models"
     out = []
@@ -890,9 +913,25 @@ def list_refs():
     return sorted(str(p) for p in rd.iterdir() if p.suffix.lower() in IMG_EXT and p.is_file())
 
 
+def all_styles(st):
+    """参考图的分组：对镜自拍、街拍、店里自己加的（比如 工作室静物 / 书桌房间 / 灰棚 lookbook），最后是其他。"""
+    out = {"mirror": STYLES["mirror"], "street": STYLES["street"]}
+    out.update((g["id"], g["name"]) for g in st.get("styleGroups") or [])
+    out["other"] = STYLES["other"]
+    return out
+
+
+def style_note(st, key):
+    """写进出图任务单的风格要求：自带的两组用固定说明，自己加的组用加组时写的那句。"""
+    if key in STYLE_NOTES:
+        return STYLE_NOTES[key]
+    g = next((x for x in st.get("styleGroups") or [] if x["id"] == key), None)
+    return ("%s：%s" % (g["name"], g["note"] or "成品要和这组参考图的场景、光线、构图、氛围一致")) if g else ""
+
+
 def ref_style(path, st):
     """参考图属于哪组风格：上传时选的；没选过就按文件名猜（镜/自拍 → 对镜自拍，街 → 街拍）。"""
-    if st["refStyles"].get(path) in STYLES:
+    if st["refStyles"].get(path) in all_styles(st):
         return st["refStyles"][path]
     name = Path(path).stem.lower()
     if re.search(r"镜|自拍|mirror|selfie", name):
@@ -929,8 +968,9 @@ def lock_job_md(it, p, job_name):
     for i, ref in enumerate(p["refs"]):
         rows.append("| %d | library/references/%s | %s_%s_%02d_%s.png |" % (i + 1, Path(ref).name, safe_name(it["lockName"]), tag, i + 1, safe_name(Path(ref).stem)))
     extra = (p.get("note") or "").strip() or "无"
-    if STYLE_NOTES.get(p.get("style")):
-        extra = "风格：" + STYLE_NOTES[p["style"]] + "\n\n" + extra
+    note = style_note(load_state(), p.get("style"))
+    if note:
+        extra = "风格：" + note + "\n\n" + extra
     if p["face"] == "model":
         extra += "\n\n## 模特\n脸和发型换成 library/models/%s（profile.md 和 face_* 照片）。衣服先按 C4 检查通过，再做贴脸和融合；脸按「检查」一节的对照表和她本人照片比。" % p["model"]
     return """# 出图任务 %s
@@ -961,7 +1001,7 @@ def lock_prompt(p, job_name):
                if with_model else
                "每张把素材图当编辑底图，人、脸、动作、比例、场景和配饰都不动，只把衣服换成原图目录里的产品，附图按任务单的顺序；脸按任务单的「脸部处理」来。")
             + "每张都用 tools/crop_compare.py 把衣服关键部位放大和产品图并排检查，评 A/B/C，没过的只返工那一项，成品按表里的文件名存到 jobs/%s/out，最后运行 tools/contact_sheet.py 并写 report.md，report.md 里每张成品单独一行写「<文件名>：评级 A/B/C，一句原因」。" % job_name
-            + (("风格按任务单「补充要求」里写的" + STYLES[p["style"]] + "来。") if STYLE_NOTES.get(p.get("style")) else "")
+            + (("风格按任务单「补充要求」里写的「%s」来。" % all_styles(load_state())[p["style"]]) if style_note(load_state(), p.get("style")) else "")
             + "我已经在工作台点了出图，这就是确认，不用再问我。生图额度用完时停下，在 report.md 写明做到哪一张。"
             + "全部完成后，最后一行只输出：{\"ok\":true,\"images\":<out 里的张数>}")
 
@@ -1001,9 +1041,16 @@ def write_prompt(p, st):
         lines.append("拆成 2 篇：一篇偏「身材/尺码怎么穿」，一篇偏「场景怎么搭」，角度、标题、开头都不能重复。图片分给两篇，每篇至少 2 张，按上面的顺序分，各自第一张作封面。")
     elif imgs:
         lines.append("1 篇，图片全用，按上面的顺序，第一张是封面。")
-    if p.get("coverText"):
-        cdir = STUDIO / "covers" / uuid.uuid4().hex[:8]
+    cover = p.get("cover") or ("text" if p.get("coverText") else "none")
+    cdir = STUDIO / "covers" / uuid.uuid4().hex[:8]
+    if imgs and cover == "text":
         lines.append("封面加字：用 Python PIL 在每篇封面图上方 1/5 处加一行 ≤12 字的大字（粗体、白字带半透明深色底条，字号约图宽的 1/12，中文字体用 /System/Library/Fonts/PingFang.ttc），另存到 %s/ 下，用加字后的图替换这一篇的第一张；原图不改。" % cdir)
+    elif imgs and cover == "logo":
+        logo = account_logo(next((a for a in st["accounts"] if str(a["id"]) == str(p["account"])), {}))
+        lines.append("品牌水印：用 Python PIL 把 %s 贴到这一篇每张图的右下角（宽约图宽的 1/5，离右边和下边各留图宽的 4%%，PNG 的透明部分保持透明），"
+                     "另存到 %s/ 下，用贴好的图按原顺序替换；原图不改。封面不加别的字。" % (logo, cdir))
+    elif imgs:
+        lines.append("封面和其他图都不要加字、不要加贴纸，原图直接用。")
     lines += [
         ("额外要求：%s。" % p["note"]) if p.get("note") else "",
         "每篇写 3 个不同方向的标题候选（身高或身材 + 痛点 / 场景 / 细节钩子），都 ≤18 字；title 用第 1 个。",
@@ -1011,7 +1058,7 @@ def write_prompt(p, st):
         "标题 ≤18 字，正文 ≤888 字，不用 Markdown 符号，不写 # 号和列表符号。" + FASHION_RULES,
         "写完把全部稿件存成一个 UTF-8 JSON 文件 %s，格式：" % p["outFile"],
         '{"drafts":[{"title":"入审用的标题","titles":["标题1","标题2","标题3"],"body":"正文","tags":["话题1","话题2"],"images":["本篇用的图片绝对路径，第一张是封面"]}]}',
-        "images 只能用上面给的图片路径（加了字的封面用另存的新路径）。我已经在工作台点了按钮，这就是确认，不用再问我。",
+        "images 只能用上面给的图片路径（加了字或水印的用另存的新路径）。我已经在工作台点了按钮，这就是确认，不用再问我。",
         "全部完成后，最后一行只输出：{\"ok\":true,\"drafts\":<篇数>}",
     ]
     return "\n".join(l for l in lines if l)
@@ -1140,12 +1187,7 @@ def r_item_photo(body):
     it = find_item(load_state(), body["id"])
     if not it or not it.get("lockName"):
         raise ValueError("找不到这个单品")
-    head, _, b64 = body["data"].partition(",")
-    ext = ".png" if "png" in head else ".webp" if "webp" in head else ".jpg"
-    try:
-        data = base64.b64decode(re.sub(r"\s", "", b64), validate=True)
-    except Exception:
-        raise ValueError("图片数据无效")
+    data, ext = decode_image(body["data"])
     if len(data) < 100:
         raise ValueError("图片是空的")
     d = item_dir(it)
@@ -1179,12 +1221,7 @@ def r_item_checks(body):
 
 def r_ref_upload(body):
     need(body, "data", "name")
-    head, _, b64 = body["data"].partition(",")
-    ext = ".png" if "png" in head else ".webp" if "webp" in head else ".jpg"
-    try:
-        data = base64.b64decode(re.sub(r"\s", "", b64), validate=True)
-    except Exception:
-        raise ValueError("图片数据无效")
+    data, ext = decode_image(body["data"])
     rd = lock_root() / "library" / "references"
     rd.mkdir(parents=True, exist_ok=True)
     stem = safe_name(Path(body["name"]).stem)
@@ -1194,16 +1231,119 @@ def r_ref_upload(body):
         f = rd / ("%s_%d%s" % (stem, n, ext))
         n += 1
     f.write_bytes(data)
-    if body.get("style") in STYLES:
+    if body.get("style") in all_styles(load_state()):
         mutate(lambda s: s["refStyles"].__setitem__(str(f), body["style"]))
     return {"ok": True, "path": str(f)}
 
 
 def r_ref_style(body):
     need(body, "path", "style")
-    if body["path"] not in list_refs() or body["style"] not in STYLES:
+    if body["path"] not in list_refs() or body["style"] not in all_styles(load_state()):
         raise ValueError("找不到这张参考图")
     mutate(lambda s: s["refStyles"].__setitem__(body["path"], body["style"]))
+    return {"ok": True}
+
+
+def r_style_group(body):
+    """参考图库里自己加一组风格（名字 + 一句给 AI 的说明），或删掉一组（组里的图回到「其他」，不删图）。"""
+    need(body, "action")
+    if body["action"] == "add":
+        need(body, "name")
+        name, note = str(body["name"]).strip()[:12], str(body.get("note") or "").strip()[:120]
+        if name in all_styles(load_state()).values():
+            raise ValueError("已经有「%s」这一组了" % name)
+        g = {"id": "g" + uuid.uuid4().hex[:6], "name": name, "note": note}
+        mutate(lambda s: s["styleGroups"].append(g))
+        return {"ok": True, "group": g}
+    need(body, "id")
+    if not any(g["id"] == body["id"] for g in load_state()["styleGroups"]):
+        raise ValueError("只能改自己加的组")
+    if body["action"] == "edit":
+        need(body, "name")
+
+        def f(s):
+            for g in s["styleGroups"]:
+                if g["id"] == body["id"]:
+                    g.update(name=str(body["name"]).strip()[:12], note=str(body.get("note") or "").strip()[:120])
+        mutate(f)
+    elif body["action"] == "delete":
+        def f(s):
+            s["styleGroups"] = [g for g in s["styleGroups"] if g["id"] != body["id"]]
+            s["refStyles"] = {k: v for k, v in s["refStyles"].items() if v != body["id"]}
+            for st in (s.get("lastPick") or {}).get("byAcc", {}).values():
+                if st.get("style") == body["id"]:
+                    st["style"] = "own"
+        mutate(f)
+    else:
+        raise ValueError("未知操作")
+    return {"ok": True}
+
+
+def decode_image(data):
+    head, _, b64 = str(data or "").partition(",")
+    ext = ".png" if "png" in head else ".webp" if "webp" in head else ".jpg"
+    try:
+        raw = base64.b64decode(re.sub(r"\s", "", b64), validate=True)
+    except Exception:
+        raise ValueError("图片数据无效")
+    if not raw:
+        raise ValueError("图片是空的")
+    return raw, ext
+
+
+def r_item_real(body):
+    """实拍图：上传一张（存进原图目录 real/），或移除一张（挪进 real/_removed，不真删）。"""
+    need(body, "id", "action")
+    it = find_item(load_state(), body["id"])
+    if not it or not it.get("lockName"):
+        raise ValueError("找不到这个单品")
+    d = item_dir(it) / "real"
+    if body["action"] == "add":
+        raw, ext = decode_image(body.get("data"))
+        d.mkdir(parents=True, exist_ok=True)
+        stem = safe_name(Path(str(body.get("name") or "实拍")).stem)
+        f = d / (stem + ext)
+        n = 2
+        while f.exists():
+            f = d / ("%s_%d%s" % (stem, n, ext))
+            n += 1
+        f.write_bytes(raw)
+        return {"ok": True, "path": str(f)}
+    if body["action"] == "delete":
+        if body.get("path") not in real_photos(it):
+            raise ValueError("找不到这张实拍图")
+        src = Path(body["path"])
+        (d / "_removed").mkdir(exist_ok=True)
+        shutil.move(str(src), str(d / "_removed" / ("%s_%s%s" % (src.stem, uuid.uuid4().hex[:4], src.suffix))))
+        return {"ok": True}
+    raise ValueError("未知操作")
+
+
+def r_account_cover(body):
+    """每个号的封面样式；选品牌水印时上传一张 logo（透明底 PNG 最好）。"""
+    need(body, "id", "cover")
+    if body["cover"] not in COVERS:
+        raise ValueError("未知封面样式")
+    require_account(body["id"])
+    logo = None
+    if body.get("logo"):
+        raw, ext = decode_image(body["logo"])
+        d = STUDIO / "logos"
+        d.mkdir(parents=True, exist_ok=True)
+        for old in d.glob("acc%s.*" % body["id"]):
+            old.unlink()
+        logo = d / ("acc%s%s" % (body["id"], ext))
+        logo.write_bytes(raw)
+
+    def f(s):
+        for a in s["accounts"]:
+            if str(a["id"]) == str(body["id"]):
+                if logo:
+                    a["logo"] = str(logo)
+                if body["cover"] == "logo" and not account_logo(a):
+                    raise ValueError("选品牌水印要先上传一张 logo 图")
+                a["cover"] = body["cover"]
+    mutate(f)
     return {"ok": True}
 
 
@@ -1321,7 +1461,7 @@ def api_state():
         "nextSlot": {str(a["id"]): next_slot(st, a["id"]) for a in rb["accounts"]},
         "lock": {"ok": (lr / "AGENTS.md").is_file(), "path": str(lr), "models": list_models(), "refs": refs,
                  "refStyles": {r: ref_style(r, st) for r in refs}, "minPerImage": MIN_PER_IMAGE},
-        "styles": STYLES,
+        "styles": all_styles(st), "styleGroups": st["styleGroups"], "covers": COVERS,
         "topics": sorted(st["topics"], key=lambda t: (t["status"] != "unused", -t.get("createdAt", 0))),
         "topicGrid": {str(a["id"]): topic_grid(st, a["id"]) for a in rb["accounts"]},
         "stats": {str(a["id"]): account_stats(st, a["id"]) for a in rb["accounts"]},
@@ -1436,7 +1576,7 @@ def r_trial(p):
     for src in imgs:
         image_path(src)
     jid = uuid.uuid4().hex[:10]
-    q = {"account": str(p["account"]), "item": it["id"], "images": imgs, "count": 1, "coverText": False,
+    q = {"account": str(p["account"]), "item": it["id"], "images": imgs, "count": 1, "cover": "none",
          "outFile": str(STUDIO / "work" / ("trial_%s.json" % jid))}
     job = {"id": jid, "kind": "trial", "params": q, "title": "试写 · %s" % it["name"],
            "prompt": write_prompt(q, st), "status": "queued", "createdAt": now_ms()}
@@ -1451,8 +1591,9 @@ def r_prompt_preview(body):
     st = load_state()
     it = find_item(st, body.get("item") or "") or {}
     jobs = lock_jobs_for(it) if it.get("lockName") else []
-    imgs = next((j["images"] for j in jobs if j["images"]), [])[:4]
-    p = {"account": str(body["account"]), "item": it.get("id", ""), "images": imgs, "count": 1, "coverText": True,
+    imgs = (next((j["images"] for j in jobs if j["images"]), []) + (real_photos(it) if it.get("lockName") else []))[:4]
+    a = next((x for x in st["accounts"] if str(x["id"]) == str(body["account"])), {})
+    p = {"account": str(body["account"]), "item": it.get("id", ""), "images": imgs, "count": 1, "cover": account_cover(a),
          "outFile": str(STUDIO / "work" / "drafts_<任务编号>.json")}
     return {"ok": True, "prompt": write_prompt(p, st)}
 
@@ -1478,6 +1619,8 @@ def r_lock_job(kind, p):
             raise ValueError("档案还没核对，先在第 1 步核对检查要点并确认")
         if p.get("face") not in FACE_MODES:
             raise ValueError("请选择脸怎么处理")
+        if p.get("account"):
+            require_account(p["account"])
         if p["face"] == "model":
             m = next((x for x in list_models() if x["name"] == p.get("model")), None)
             if not m:
@@ -1490,9 +1633,10 @@ def r_lock_job(kind, p):
             raise ValueError("请从参考图库里选至少 1 张参考图")
         if len(refs) > 9:
             raise ValueError("一次最多出 9 张")
-        if p.get("style") not in ("mirror", "street", "own"):
+        styles = all_styles(st)
+        if p.get("style") not in styles or p["style"] == "other":
             p["style"] = "own"
-        tag = {"mirror": "对镜自拍", "street": "街拍"}.get(p["style"]) or ("换模特" if p["face"] == "model" else "只锁产品")
+        tag = styles.get(p["style"]) if p["style"] != "own" else ("换模特" if p["face"] == "model" else "静物" if p["face"] == "none" else "只锁产品")
         name = "%s_%s_%s" % (datetime.datetime.now().strftime("%Y%m%d_%H%M"), safe_name(it["lockName"]), tag)
         jd = lock_root() / "jobs" / name
         if jd.exists():
@@ -1505,17 +1649,21 @@ def r_lock_job(kind, p):
         if auto:
             require_account(auto.get("account"))
             auto = {"account": str(auto["account"]), "count": 2 if str(auto.get("count")) == "2" else 1,
-                    "coverText": bool(auto.get("coverText", True)), "note": str(auto.get("note") or "")[:300]}
+                    "cover": auto.get("cover") if auto.get("cover") in COVERS else "", "note": str(auto.get("note") or "")[:300]}
 
         def remember(s):
             lp = s.setdefault("lastPick", {})
             lp.update(face=p["face"], model=p.get("model") or lp.get("model", ""), style=p["style"])
             lp.setdefault("refsByCat", {})[it.get("category") or "其他"] = refs
             lp.setdefault("faceByStyle", {})[p["style"]] = p["face"]
+            # 每个号的拍法：下次在这个号出图，风格、脸、模特、参考图自动带上
+            acc = p.get("account") or (auto or {}).get("account")
+            if acc:
+                lp.setdefault("byAcc", {})[str(acc)] = {"style": p["style"], "face": p["face"], "model": p.get("model") or "", "refs": refs}
         mutate(remember)
         job = {"id": uuid.uuid4().hex[:10], "kind": "lock", "cwd": str(lock_root()),
                "params": {"item": it["id"], "face": p["face"], "model": p.get("model") or "", "refs": refs, "jobDir": str(jd), "autoWrite": auto, "style": p["style"]},
-               "title": "出图 · %s · %s%d 张" % (it["name"], (STYLES[p["style"]] + " ") if p["style"] in STYLES else "", len(refs)), "prompt": lock_prompt(p, name),
+               "title": "出图 · %s · %s%d 张" % (it["name"], (styles[p["style"]] + " ") if p["style"] in styles else "", len(refs)), "prompt": lock_prompt(p, name),
                "status": "queued", "createdAt": now_ms(), "estimateMin": MIN_PER_IMAGE[p["face"]] * len(refs)}
     mutate(lambda s: s["jobs"].append(job))
     return {"ok": True, "job": job}
@@ -1535,7 +1683,13 @@ def r_write_from_images(p):
     p["count"] = 2 if str(p.get("count")) == "2" else 1
     if p["count"] == 2 and len(imgs) < 4:
         raise ValueError("拆成 2 篇至少要 4 张图")
-    p["coverText"] = bool(p.get("coverText"))
+    if p.get("cover") not in COVERS:
+        # 没指定就按这个号的设定；老的调用只传 coverText
+        a = next((x for x in st["accounts"] if str(x["id"]) == str(p.get("account"))), {})
+        p["cover"] = ("text" if p["coverText"] else "none") if "coverText" in p else account_cover(a)
+    p.pop("coverText", None)
+    if p["cover"] == "logo" and not account_logo(next((x for x in st["accounts"] if str(x["id"]) == str(p.get("account"))), {})):
+        raise ValueError("这个号的封面设成了品牌水印，但还没上传 logo，到「文案 › 文案设定」里传一张")
     if p.get("topic"):
         t = find_topic(st, p["topic"])
         if not t or str(t["account"]) != str(p["account"]):
@@ -1950,6 +2104,7 @@ ROUTES = {
     "/api/xhs/login": r_xhs_login, "/api/xhs/check": r_xhs_check, "/api/publish/try": r_publish_try,
     "/api/reschedule": r_reschedule, "/api/account/copy": r_account_copy, "/api/topic": r_topic,
     "/api/prompt/preview": r_prompt_preview, "/api/ref/style": r_ref_style, "/api/ref/delete": r_ref_delete,
+    "/api/style/group": r_style_group, "/api/item/real": r_item_real, "/api/account/cover": r_account_cover,
 }
 
 
