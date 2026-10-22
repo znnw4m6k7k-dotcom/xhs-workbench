@@ -25,7 +25,7 @@ class T(unittest.TestCase):
     def tearDownClass(cls):
         cls.b.close(); cls.pw.stop()
 
-    def page(self, login=False, success=True):
+    def page(self, login=False, success=True, blocked=""):
         p = self.b.new_page()
         def handle(route):
             u = route.request.url
@@ -35,6 +35,8 @@ class T(unittest.TestCase):
                 return route.fulfill(body="<script>location.href='%s'</script>" % X.URL_LOGIN, content_type="text/html")
             if "/login" in u:
                 return route.fulfill(body="<html><body>扫码登录</body></html>", content_type="text/html; charset=utf-8")
+            if blocked and "/publish/publish" in u:
+                return route.fulfill(body="<html><body>%s</body></html>" % blocked, content_type="text/html; charset=utf-8")
             html = MOCK if success else MOCK.replace("window.__topics = [];", "window.__topics = []; window.__noSuccess = true;")
             route.fulfill(body=html, content_type="text/html; charset=utf-8")
         p.route("**/*", handle)
@@ -90,6 +92,18 @@ class T(unittest.TestCase):
         with self.assertRaises(RuntimeError) as e:
             X.publish_image("t", title="标题", content="正文", images=[str(self.img)], page=p)
         self.assertIn("登录已失效", str(e.exception))
+
+    def test_captcha_stops(self):
+        p = self.page(blocked="请完成安全验证 拖动滑块")
+        with self.assertRaises(RuntimeError) as e:
+            X.publish_image("t", title="标题", content="正文", images=[str(self.img)], page=p)
+        self.assertTrue(str(e.exception).startswith("已停下：验证码"))
+
+    def test_too_frequent_stops(self):
+        p = self.page(blocked="操作频繁，请稍后再试")
+        with self.assertRaises(RuntimeError) as e:
+            X.publish_image("t", title="标题", content="正文", images=[str(self.img)], page=p)
+        self.assertIn("已停下：操作频繁", str(e.exception))
 
     def test_past_schedule_rejected(self):
         with self.assertRaises(RuntimeError):
