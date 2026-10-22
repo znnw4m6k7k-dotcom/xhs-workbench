@@ -776,6 +776,8 @@ function setPage() {
   else if (trial && trial.status === 'failed') tr = `<div class="hint bad">上次试写没成功：${esc(trial.summary || '')}</div>`;
   return `<div class="two" style="grid-template-columns:minmax(0,1fr) minmax(0,300px)"><div class="stack">
       <h2>${esc(a.name || '')}</h2>
+      <label class="f">写作风格<select id="cs-writeStyle"><option value="gaosaka" ${(a.writeStyle || 'gaosaka') === 'gaosaka' ? 'selected' : ''}>高坂风格 · 品牌主理人</option><option value="standard" ${a.writeStyle === 'standard' ? 'selected' : ''}>日常分享</option></select></label>
+      <div class="small muted">高坂风格：先讲产品事实，再解释穿着价值；短段落、克制表达，有依据才写开发故事和销量。保存后用于新稿、试写和改稿。</div>
       ${presetRow(a)}
       ${fld('position', '账号定位（一句话）', '小个子女生的通勤和约会穿搭')}${fld('tone', '口吻', '像闺蜜聊天，少用感叹号')}
       ${fld('must', '每篇必写', '模特身高体重和穿的码 + 一句选码建议', true)}${fld('banned', '自己再加的禁用词（顿号分开）', '便宜、清仓')}
@@ -1283,7 +1285,7 @@ document.addEventListener('click', async e => {
       if (j) { W.topic = null; toast('已交给 AI 写，写好会出现在「审稿」'); }
       break; }
     case 'saveCopy': {
-      const body = {id: UI.acc}; ['position', 'tone', 'must', 'banned', 'tagMix'].forEach(k => body[k] = $('#cs-' + k).value.trim());
+      const body = {id: UI.acc}; ['writeStyle', 'position', 'tone', 'must', 'banned', 'tagMix'].forEach(k => body[k] = $('#cs-' + k).value.trim());
       document.activeElement.blur();
       if (await api('/api/account/copy', body)) toast('已保存，之后写的文案都按这个来');
       break; }
