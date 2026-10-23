@@ -15,7 +15,7 @@
   python3 studio.py show <稿>                    # 看一篇稿
   python3 studio.py edit <稿> [--title T] [--body-file F] [--tags "a b c"]
   python3 studio.py revise <稿> "开头再口语一点"  # 让 AI 按意见改
-  python3 studio.py approve <稿> [--at auto|now|"10-22 20:00"] [--no-ai] [--yes]   # 到点工作台开浏览器发，Mac 要开着
+  python3 studio.py approve <稿> [--at auto|now|"10-22 20:00"] [--no-ai] [--yes]   # 到点工作台开浏览器发，电脑要开着
   python3 studio.py models | refs
 
 <款> 可以写名称里的几个字或编号；<稿> 写稿件编号或标题里的几个字。默认用第一个女装账号，--account 指定。
@@ -31,6 +31,13 @@ from pathlib import Path
 
 STUDIO = Path(os.environ.get("XHS_STUDIO_HOME", str(Path.home() / ".xhs-studio")))
 HERE = Path(__file__).resolve().parent
+if os.name == "nt":
+    # Windows 默认 GBK，Codex 读输出时 ✓ ✗ 和中文会报错，统一 UTF-8
+    for _s in (sys.stdout, sys.stderr):
+        try:
+            _s.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
 
 
 def base_url():
@@ -53,7 +60,7 @@ def call(path, body=None):
             j = {}
         die(j.get("error") or "工作台返回错误 %s" % e.code)
     except (urllib.error.URLError, OSError):
-        die("连不上工作台。先运行：bash %s/start.sh" % HERE)
+        die("连不上工作台。先运行：" + ("python \"%s\"" % (HERE / "start.py") if os.name == "nt" else "bash %s/start.sh" % HERE))
 
 
 def die(msg):
@@ -393,7 +400,7 @@ def c_approve(a):
     q = call("api/publish/preview", {"account": acc["id"], "id": r["id"]})
     mark_ai = not a.no_ai
     print("「%s」%s发布%s；%s「笔记含 AI 合成内容」；不扣点。" % (r["title"], ("排在 %s " % fmt(when)) if when else "现在就",
-                                         "（到点工作台开浏览器直接发，那时 Mac 要开着、工作台要开着）" if when else "", "勾选" if mark_ai else "不勾选"))
+                                         "（到点工作台开浏览器直接发，那时电脑要开着、工作台要开着）" if when else "", "勾选" if mark_ai else "不勾选"))
     if not a.yes:
         print("用户同意后加 --yes 再运行一次。")
         return

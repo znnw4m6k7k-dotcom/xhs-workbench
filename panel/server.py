@@ -2,15 +2,16 @@
 """the rumah小红书工作台（本机服务）。
 
 在 Codex 里说“打开工作台”时由 xhs-autopilot 启动，然后在 Codex 内置浏览器里打开
-http://127.0.0.1:17865（被占用就自动换下一个端口，实际地址写在 ~/.xhs-studio/url.txt）。只用标准库，macOS 自带的 python3 即可运行。
+http://127.0.0.1:17865（被占用就自动换下一个端口，实际地址写在 ~/.xhs-studio/url.txt）。只用标准库，
+macOS 自带的 python3、Windows 上装的 Python 3.9+ 都能运行。
 
 分工：
 - 数据：账号、稿件、排期都存在 ~/.xhs-studio/state.json，不依赖 RedBeacon。
 - 出图：交给锁图工作台 xhs-lock-studio（codex exec 在那个文件夹里跑）。
 - 写文案、按意见改稿：调用 `codex exec`，只用 GPT/Codex 订阅；Codex 把稿件写成 JSON 文件，工作台读回来。
 - 发布：xhs-autopilot/publisher/xhs_publish.py 自己开浏览器发，扫码登录，不扣点。
-  不用小红书平台的定时发布：到点由本服务打开浏览器直接发，所以那时 Mac 要开着、工作台要开着；
-  有待发的稿时用 caffeinate 不让 Mac 睡眠（合盖仍会睡）。
+  不用小红书平台的定时发布：到点由本服务打开浏览器直接发，所以那时电脑要开着、工作台要开着；
+  有待发的稿时不让电脑闲置睡眠（Mac 用 caffeinate，Windows 用 SetThreadExecutionState；合盖仍会睡）。
 - 界面四大块：产品图（照片资料 / 出图 / 出好的图 / 模特和参考图库）、文案（选题库 / 审稿 / 写新的一篇 / 文案设定）、
   发布（待发布 / 排期日历 / 账号登录）、历史记录。
 
@@ -41,6 +42,16 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 HOME = Path.home()
+IS_WIN = os.name == "nt"
+if IS_WIN:
+    # Windows 默认 GBK：输出、子进程一律按 UTF-8，免得中文和 ✓ 之类的符号报错
+    os.environ.setdefault("PYTHONUTF8", "1")
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    for _s in (sys.stdout, sys.stderr):
+        try:
+            _s.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
 STUDIO = Path(os.environ.get("XHS_STUDIO_HOME", str(HOME / ".xhs-studio")))
 # 各店自己的场景/身材/类目设置放 fashion.json（不进仓库）；没有就用仓库里的示例
 FASHION_FILE = Path(os.environ.get("XHS_FASHION_FILE") or (HERE / "fashion.json" if (HERE / "fashion.json").exists() else HERE / "fashion.example.json"))
@@ -51,6 +62,14 @@ RISK_ERRORS = ["最好", "第一", "绝对", "最佳", "顶级", "极致", "首�
 RISK_WARNS = ["显瘦", "封神", "闭眼入", "天花板", "必买", "必入", "断货", "爆款", "yyds", "绝绝子"]
 FASHION["riskErrors"] = list(dict.fromkeys(RISK_ERRORS + FASHION.get("riskErrors", [])))
 FASHION["riskWarns"] = list(dict.fromkeys(RISK_WARNS + FASHION.get("riskWarns", [])))
+# AI 腔：一眼像机器写的词和句式。只提醒不拦，写稿时也让 AI 自己避开
+AI_TONE_WORDS = ["家人们", "宝子们", "谁懂啊", "狠狠拿捏", "氛围感拉满", "高级感", "松弛感", "被问爆了", "我宣布", "建议所有人",
+                 "不允许还有人不知道", "直击灵魂", "视觉盛宴", "宝藏", "这谁顶得住"]
+AI_TONE_PATTERNS = [["不是[^，。！？\n]{1,12}[，,]?而是", "不是……而是……"], ["与其说[^，。！？\n]{1,12}[，,]?不如说", "与其说……不如说……"],
+                    ["这才是[^，。！？\n]{1,12}该有的样子", "这才是……该有的样子"], ["看似[^，。！？\n]{1,12}[，,]?其实", "看似……其实……"],
+                    ["表面[^，。！？\n]{0,12}[，,]?(?:背后|其实)", "表面……背后……"], ["原来真正的", "原来真正的……"],
+                    ["总而言之|综上所述|总的来说", "总结腔"]]
+FASHION["aiTone"] = {"words": AI_TONE_WORDS, "patterns": AI_TONE_PATTERNS}
 IMG_EXT = {".png", ".jpg", ".jpeg", ".webp", ".heic"}
 DEMO = False
 LOCK = threading.RLock()
@@ -62,7 +81,7 @@ APP_ID = "xhs-studio"
 DEFAULT_PORT = 17865
 PUBLISHER = HERE.parent / "publisher" / "xhs_publish.py"
 TOPICS_GUIDE = HERE.parent / "references" / "topics.md"
-AWAKE = {"proc": None}
+AWAKE = {"proc": None, "win": False, "want": False}
 STYLES = {"mirror": "对镜自拍", "street": "街拍", "other": "其他"}   # 自带的几组；店里自己加的组存在 state.json 的 styleGroups
 COVERS = {"none": "不加字", "text": "封面加一行大字", "logo": "每张图右下角放品牌水印"}
 
@@ -141,7 +160,15 @@ def save_state(st):
         st["schedule"] = [s for s in st["schedule"] if s.get("status") == "pending" or now_ms() - s.get("at", 0) < 30 * 864e5]
         tmp = state_path().with_suffix(".tmp")
         tmp.write_text(json.dumps(st, ensure_ascii=False, indent=1), "utf-8")
-        os.replace(tmp, state_path())
+        for i in range(10):
+            try:
+                os.replace(tmp, state_path())
+                break
+            except PermissionError:
+                # Windows 上杀毒软件或另一个进程正读着 state.json 时会短暂占住，等一下再换
+                if i == 9:
+                    raise
+                time.sleep(0.1)
 
 
 def mutate(fn):
@@ -169,7 +196,20 @@ def find_bin(name, configured, extra):
 def codex_bin():
     return find_bin("codex", load_state()["settings"].get("codex_path"),
                     ["/Applications/Codex.app/Contents/Resources/codex", "~/.local/bin/codex",
-                     "/opt/homebrew/bin/codex", "/usr/local/bin/codex"])
+                     "/opt/homebrew/bin/codex", "/usr/local/bin/codex",
+                     # Windows：npm 全局装的是 codex.cmd；Codex 桌面版自带的命令行
+                     "~/AppData/Roaming/npm/codex.cmd", "~/AppData/Local/Programs/Codex/resources/codex.exe",
+                     "~/AppData/Local/Programs/codex/codex.exe"])
+
+
+def child_env(**extra):
+    """子进程环境：发布脚本按 UTF-8 输出，Windows 上不会因为 GBK 读乱。"""
+    return dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8", **extra)
+
+
+# Windows 上的 Codex 按 AGENTS.md 里写的 python3 去跑常会找不到命令，交任务时提前说一声
+WIN_NOTE = ("【这台电脑是 Windows】命令里写的 python3 / pip3 都换成 python / pip（找不到再试 py -3）；"
+            "路径用正斜杠或给整段加引号；中文字体用 C:/Windows/Fonts/msyhbd.ttc（微软雅黑粗体）。\n\n")
 
 
 def parse_json_loose(text):
@@ -196,9 +236,10 @@ def xhs_cli(args, timeout=600):
         return demo_xhs(args)
     if not PUBLISHER.is_file():
         return False, None, "找不到发布脚本：%s" % PUBLISHER
-    env = dict(os.environ, XHS_PUBLISHER_HOME=str(STUDIO / "publisher"))
+    env = child_env(XHS_PUBLISHER_HOME=str(STUDIO / "publisher"))
     try:
-        p = subprocess.run([sys.executable, str(PUBLISHER)] + [str(a) for a in args], capture_output=True, text=True, timeout=timeout, env=env)
+        p = subprocess.run([sys.executable, str(PUBLISHER)] + [str(a) for a in args], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=timeout, env=env)
     except subprocess.TimeoutExpired:
         return False, None, "发布脚本超时"
     data = None
@@ -260,7 +301,7 @@ def read_data():
         if r["status"] != "已发布":
             r["clash"] = draft_clash(st, r, names)
     archive = sorted(({"account_id": v["account"], "title": v["title"], "at": v["at"], "shot": v.get("shot", ""),
-                       "review": k, "ai": v.get("ai"),
+                       "review": k, "ai": v.get("ai"), "noteUrl": v.get("noteUrl", ""),
                        "published_at": fmt_ms(v["at"]) + ("（交给小红书定时）" if v.get("platform") else "")}
                       for k, v in st["published"].items()), key=lambda x: x["at"], reverse=True)[:60]
     return {"accounts": accounts, "reviews": reviews, "archive": archive}
@@ -371,6 +412,10 @@ FASHION_RULES = ("女装合规：只用单品资料里的真实信息，不编�
                  "不出现 大牌同款、平替、一比一、高仿、原单、专柜 等字样；不用 绝对、第一、最好、永不起球 这类极限词；"
                  "身材相关表述友善，不制造身材焦虑。"
                  "这些词标题、正文、评论里一个都不能出现：%s。" % "、".join(FASHION["riskErrors"]))
+AI_TONE_RULE = ("不要 AI 腔：不用这些词：%s；不用这些句式：%s。"
+                "写完先自己通读一遍去 AI 味再存文件：删掉套话、翻译腔、三连排比和空洞的总结句，换成具体的上身感受和细节；"
+                "3 个标题句式要各不相同，像真人随口说的，不像正文摘要。"
+                % ("、".join(AI_TONE_WORDS), "、".join(x[1] for x in AI_TONE_PATTERNS)))
 COPY_GUIDE = HERE.parent / "references" / "copywriting.md"
 GAOSAKA_GUIDE = HERE.parent / "references" / "gaosaka-style.md"
 COPY_STYLES = {"gaosaka": "高坂风格 · 品牌主理人", "standard": "日常分享"}
@@ -665,16 +710,22 @@ def run_job(job):
         return
     work = Path(job.get("cwd") or (STUDIO / "work"))
     work.mkdir(parents=True, exist_ok=True)
-    args = shlex.split(load_state()["settings"].get("codex_args") or DEFAULT_SETTINGS["codex_args"])
-    cmd = [cx] + args + ["-C", str(work), job["prompt"]]
+    args = shlex.split(load_state()["settings"].get("codex_args") or DEFAULT_SETTINGS["codex_args"], posix=not IS_WIN)
+    cmd, stdin, prompt = codex_cmd(cx, args, work, job["prompt"])
     with open(log_path, "w", encoding="utf-8") as fh:
         fh.write("$ codex %s\n\n" % " ".join(args))
         fh.flush()
         try:
-            proc = subprocess.Popen(cmd, stdout=fh, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, cwd=str(work))
+            proc = subprocess.Popen(cmd, stdout=fh, stderr=subprocess.STDOUT, stdin=stdin, cwd=str(work), env=child_env())
         except Exception as e:
             update_job(job["id"], status="failed", endedAt=now_ms(), summary="启动 codex 失败：%s" % e)
             return
+        if prompt is not None:
+            try:
+                proc.stdin.write(prompt.encode("utf-8"))
+                proc.stdin.close()
+            except OSError:
+                pass
         PROCS[job["id"]] = proc
         code = proc.wait()
         PROCS.pop(job["id"], None)
@@ -706,9 +757,17 @@ def run_job(job):
         chain_after(job)
 
 
+def codex_cmd(cx, args, work, prompt):
+    """拼 codex exec 命令。Windows 上 codex 多半是 npm 的 codex.cmd：多行中文提示词走 cmd.exe 会被截断，
+    命令行也有 3 万字上限，所以改成提示词写「-」、正文从标准输入送进去。返回 (cmd, stdin, 要写进去的提示词)。"""
+    if IS_WIN:
+        return [cx] + args + ["-C", str(work), "-"], subprocess.PIPE, WIN_NOTE + prompt
+    return [cx] + args + ["-C", str(work), prompt], subprocess.DEVNULL, None
+
+
 def color_check(job):
     """轻量颜色比对：成品中间一块的平均色和产品正面照中间一块比，差太多就标「颜色可能偏了」提醒人看。
-    只是提醒，不自动返工；Mac 上没装 Pillow 就跳过。"""
+    只是提醒，不自动返工；没装 Pillow 就跳过。"""
     try:
         from PIL import Image
     except ImportError:
@@ -858,8 +917,10 @@ def publish_one(entry):
             if tags.get("plain"):
                 step("这些话题平台上没有完全一样的，按文字留着：%s" % "、".join(tags["plain"]))
             step("发布成功")
+            note_url = (data or {}).get("noteUrl") or ""
+            step("在「笔记管理」核对到了这篇：%s" % note_url if note_url else "没核对到笔记链接（不影响已发出），到创作中心「笔记管理」看一眼")
             rec = {"account": aid, "title": r["title"], "at": now_ms(), "entry": entry["id"],
-                   "shot": (data or {}).get("shot", ""), "ai": "--ai" in args}
+                   "shot": (data or {}).get("shot", ""), "ai": "--ai" in args, "noteUrl": note_url}
 
             def done(s):
                 s["published"][rid] = rec
@@ -891,7 +952,7 @@ def brake_reason(raw):
 
 
 def pull_brake(aid, reason, detail, who="auto"):
-    """所有号暂停发布，记下是哪个号、什么原因；Mac 上弹通知。"""
+    """所有号暂停发布，记下是哪个号、什么原因；Mac / Windows 上弹通知。"""
     rec = {"on": True, "account": str(aid or ""), "reason": reason, "detail": str(detail or "")[-300:], "at": now_ms(), "by": who}
 
     def f(s):
@@ -902,12 +963,28 @@ def pull_brake(aid, reason, detail, who="auto"):
     notify("所有号已暂停发布", "%s：%s" % (account_name(aid) if aid else "手动暂停", reason))
 
 
+# Windows 通知：用系统自带的 PowerShell 5 调 Windows 通知中心；标题和正文走环境变量，不用拼引号
+WIN_TOAST = (
+    "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null;"
+    "$x = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02);"
+    "$t = $x.GetElementsByTagName('text');"
+    "$t.Item(0).AppendChild($x.CreateTextNode($env:XHS_NOTE_TITLE)) | Out-Null;"
+    "$t.Item(1).AppendChild($x.CreateTextNode($env:XHS_NOTE_TEXT)) | Out-Null;"
+    "$id = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe';"
+    "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($id).Show([Windows.UI.Notifications.ToastNotification]::new($x))")
+
+
 def notify(title, text):
-    if DEMO or sys.platform != "darwin" or not shutil.which("osascript"):
+    if DEMO:
         return
-    q = lambda x: str(x).replace("\\", "").replace('"', "'")
     try:
-        subprocess.Popen(["osascript", "-e", 'display notification "%s" with title "%s" sound name "Basso"' % (q(text), q(title))])
+        if IS_WIN and shutil.which("powershell"):
+            subprocess.Popen(["powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", WIN_TOAST],
+                             env=dict(os.environ, XHS_NOTE_TITLE=str(title), XHS_NOTE_TEXT=str(text)),
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        elif sys.platform == "darwin" and shutil.which("osascript"):
+            q = lambda x: str(x).replace("\\", "").replace('"', "'")
+            subprocess.Popen(["osascript", "-e", 'display notification "%s" with title "%s" sound name "Basso"' % (q(text), q(title))])
     except OSError:
         pass
 
@@ -954,7 +1031,7 @@ def scheduler():
                 if e.get("status") != "pending" or e.get("at", 0) > now_ms():
                     continue
                 if now_ms() - e["at"] > grace:
-                    set_entry(e["id"], status="missed", error="错过了发布时间（当时 Mac 睡着了或工作台没开），没有补发，可以重新排期")
+                    set_entry(e["id"], status="missed", error="错过了发布时间（当时电脑睡着了或工作台没开），没有补发，可以重新排期")
                     continue
                 publish_one(e)
             keep_awake(any(e.get("status") == "pending" for e in load_state()["schedule"]))
@@ -964,7 +1041,13 @@ def scheduler():
 
 
 def keep_awake(need):
-    """有待发的稿时开 caffeinate -i，不让 Mac 闲置睡眠（合盖还是会睡）；没有就关掉。只在 macOS 上。"""
+    """有待发的稿时不让电脑闲置睡眠（合盖还是会睡）；没有就放开。Mac 开 caffeinate -i，Windows 交给 win_awake 线程。"""
+    if IS_WIN:
+        AWAKE["want"] = bool(need) and not DEMO
+        if AWAKE["want"] and not AWAKE.get("thread"):
+            AWAKE["thread"] = threading.Thread(target=win_awake, daemon=True)
+            AWAKE["thread"].start()
+        return
     p = AWAKE["proc"]
     alive = p is not None and p.poll() is None
     if need and not alive and not DEMO and sys.platform == "darwin" and shutil.which("caffeinate"):
@@ -972,6 +1055,54 @@ def keep_awake(need):
     elif not need and alive:
         p.terminate()
         AWAKE["proc"] = None
+
+
+def win_awake():
+    """Windows：SetThreadExecutionState 只对调用它的线程有效，所以单开一个常驻线程按 AWAKE["want"] 开关。"""
+    import ctypes
+    ES_CONTINUOUS, ES_SYSTEM_REQUIRED = 0x80000000, 0x00000001
+    while True:
+        want = AWAKE["want"]
+        if want != AWAKE["win"]:
+            flags = ES_CONTINUOUS | (ES_SYSTEM_REQUIRED if want else 0)
+            try:
+                ok = ctypes.windll.kernel32.SetThreadExecutionState(flags)
+            except (AttributeError, OSError):
+                ok = 0
+            AWAKE["win"] = bool(want and ok)
+            if want and not ok:
+                return
+        time.sleep(5)
+
+
+def is_awake():
+    return bool(AWAKE["win"] or (AWAKE["proc"] and AWAKE["proc"].poll() is None))
+
+
+def open_folder(d):
+    """在系统的文件管理器里打开文件夹（访达 / 资源管理器）。"""
+    if DEMO:
+        return
+    try:
+        if IS_WIN:
+            os.startfile(str(d))
+        elif shutil.which("open"):
+            subprocess.Popen(["open", str(d)])
+        elif shutil.which("xdg-open"):
+            subprocess.Popen(["xdg-open", str(d)])
+    except OSError:
+        pass
+
+
+def cover_font():
+    """封面加字用的中文粗体：Mac 苹方，Windows 微软雅黑粗体。"""
+    if IS_WIN:
+        windir = Path(os.environ.get("WINDIR", "C:/Windows")) / "Fonts"
+        for f in ("msyhbd.ttc", "msyh.ttc", "simhei.ttf"):
+            if (windir / f).is_file():
+                return (windir / f).as_posix()
+        return "C:/Windows/Fonts/msyhbd.ttc"
+    return "/System/Library/Fonts/PingFang.ttc"
 
 
 # ---------------------------------------------------------------- files
@@ -1094,7 +1225,13 @@ MIN_PER_IMAGE = {"model": 7, "ai": 3, "hide": 3, "none": 3}
 
 
 def lock_root():
-    return Path(load_state()["settings"].get("lock_studio_path") or DEFAULT_SETTINGS["lock_studio_path"]).expanduser()
+    p = Path(load_state()["settings"].get("lock_studio_path") or DEFAULT_SETTINGS["lock_studio_path"]).expanduser()
+    if not p.exists() and IS_WIN and p.parent == HOME / "Documents":
+        # Windows 开了 OneDrive 备份时，「文档」其实在 OneDrive 下面
+        for alt in (HOME / "OneDrive" / "Documents" / p.name, HOME / "OneDrive" / "文档" / p.name):
+            if alt.exists():
+                return alt
+    return p
 
 
 def safe_name(s):
@@ -1534,7 +1671,7 @@ def write_prompt(p, st):
     cover = p.get("cover") or ("text" if p.get("coverText") else "none")
     cdir = STUDIO / "covers" / uuid.uuid4().hex[:8]
     if imgs and cover == "text":
-        lines.append("封面加字：用 Python PIL 在每篇封面图上方 1/5 处加一行 ≤12 字的大字（粗体、白字带半透明深色底条，字号约图宽的 1/12，中文字体用 /System/Library/Fonts/PingFang.ttc），另存到 %s/ 下，用加字后的图替换这一篇的第一张；原图不改。" % cdir)
+        lines.append("封面加字：用 Python PIL 在每篇封面图上方 1/5 处加一行 ≤12 字的大字（粗体、白字带半透明深色底条，字号约图宽的 1/12，中文字体用 %s），另存到 %s/ 下，用加字后的图替换这一篇的第一张；原图不改。" % (cover_font(), cdir))
     elif imgs and cover == "logo":
         logo = account_logo(next((a for a in st["accounts"] if str(a["id"]) == str(p["account"])), {}))
         lines.append("品牌水印：用 Python PIL 把 %s 贴到这一篇每张图的右下角（宽约图宽的 1/5，离右边和下边各留图宽的 4%%，PNG 的透明部分保持透明），"
@@ -1549,6 +1686,7 @@ def write_prompt(p, st):
          if copy_style(p["account"]) == "gaosaka" else "每篇写 3 个不同方向的标题候选（身高或身材 + 痛点 / 场景 / 细节钩子），都 ≤18 字；title 用第 1 个。"),
         tag_rule(p["account"]),
         "标题 ≤18 字，正文 ≤888 字，不用 Markdown 符号，不写 # 号和列表符号。" + FASHION_RULES,
+        AI_TONE_RULE,
         "写完把全部稿件存成一个 UTF-8 JSON 文件 %s，格式：" % p["outFile"],
         '{"drafts":[{"title":"入审用的标题","titles":["标题1","标题2","标题3"],"body":"正文","tags":["话题1","话题2"],"comment":"置顶评论","images":["本篇用的图片绝对路径，第一张是封面"]}]}',
         "每篇另写一条 ≤150 字的置顶评论（comment）：再写一次模特身高体重和穿的码，按 2–3 种身材给选码建议，最后一句请大家报身高体重来问码。",
@@ -2003,7 +2141,8 @@ def api_state():
         "topics": sorted(st["topics"], key=lambda t: (t["status"] != "unused", -t.get("createdAt", 0))),
         "topicGrid": {str(a["id"]): topic_grid(st, a["id"]) for a in rb["accounts"]},
         "stats": {str(a["id"]): account_stats(st, a["id"]) for a in rb["accounts"]},
-        "awake": bool(AWAKE["proc"] and AWAKE["proc"].poll() is None),
+        "awake": is_awake(),
+        "os": "windows" if IS_WIN else ("mac" if sys.platform == "darwin" else "other"),
     }
 
 
@@ -2525,12 +2664,12 @@ def r_review(body):
         out = STUDIO / "work" / ("rewrite_%s.json" % jid)
         src = {"title": r["title"], "body": r["body"], "tags": r["tags"], "comment": r.get("comment", "")}
         prompt = ("按我的意见改写这篇女装小红书笔记。意见：%s。\n原稿（JSON）：%s\n"
-                  "%s\n标题 ≤18 字，正文 ≤888 字，不用 Markdown 符号。%s\n"
+                  "%s\n标题 ≤18 字，正文 ≤888 字，不用 Markdown 符号。%s\n%s\n"
                   "置顶评论 comment ≤150 字，意见没提到就保持原样（原稿没有就补一条尺码答疑）。"
                   "改完存成 UTF-8 JSON 文件 %s，格式：{\"title\":\"\",\"titles\":[\"标题1\",\"标题2\",\"标题3\"],\"body\":\"\",\"tags\":[],\"comment\":\"\"}。不要发布。"
                   "最后一行只输出：{\"ok\":true}") % (body["note"], json.dumps(src, ensure_ascii=False),
                                                 "\n".join([("写法参考 %s。" % COPY_GUIDE) if COPY_GUIDE.is_file() else "",
-                                                           copy_rules(aid), item_facts(find_item(load_state(), r.get("item")) or {}), tag_rule(aid)]), FASHION_RULES, out)
+                                                           copy_rules(aid), item_facts(find_item(load_state(), r.get("item")) or {}), tag_rule(aid)]), FASHION_RULES, AI_TONE_RULE, out)
         job = {"id": jid, "kind": "rewrite", "params": {"account": aid, "review": rid, "outFile": str(out)},
                "title": "改写「%s」" % r.get("title", ""), "prompt": prompt, "status": "queued", "createdAt": now_ms()}
         mutate(lambda s: s["jobs"].append(job))
@@ -2702,9 +2841,9 @@ def r_xhs_login(body):
         return {"ok": True}
     if not PUBLISHER.is_file():
         raise ValueError("找不到发布脚本：%s" % PUBLISHER)
-    env = dict(os.environ, XHS_PUBLISHER_HOME=str(STUDIO / "publisher"))
+    env = child_env(XHS_PUBLISHER_HOME=str(STUDIO / "publisher"))
     proc = subprocess.Popen([sys.executable, str(PUBLISHER), "login", "--account", xhs_profile(aid)],
-                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env)
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", env=env)
     LOGIN_PROCS[aid] = proc
 
     def wait():
@@ -2931,8 +3070,7 @@ def r_package(body):
             n += 1
     if n != len(r["images"]):
         raise ValueError("图片在导出期间发生变化，未生成完整发布包，请重试")
-    if not DEMO and shutil.which("open"):
-        subprocess.Popen(["open", str(d)])
+    open_folder(d)
     return {"ok": True, "dir": str(d), "images": n}
 
 
@@ -3074,6 +3212,8 @@ def main():
         print("找不到可用端口")
         return
     url_file.write_text(url, "utf-8")
+    # stop.py / stop.cmd 靠这个文件找到要停的进程（Windows 没有 pkill）
+    (url_file.parent / "panel.pid").write_text(str(os.getpid()), "utf-8")
 
     def reset(s):
         for j in s["jobs"]:

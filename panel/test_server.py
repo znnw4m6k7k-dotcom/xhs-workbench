@@ -504,6 +504,21 @@ class PanelTests(unittest.TestCase):
             self.m.r_publish_try({"account": "1", "id": rid, "markAi": False})
             self.assertNotIn("--ai", cli.call_args[0][0])
 
+    def test_63b_publish_keeps_note_link(self):
+        e = self.schedule()
+        url = "https://www.xiaohongshu.com/explore/6718a0c2000000001b03f2aa"
+        with patch.object(self.m, "xhs_cli", return_value=(True, {"ok": True, "shot": "", "noteUrl": url}, "")):
+            self.m.publish_one(e)
+        self.assertEqual(self.m.api_state()["archive"][0]["noteUrl"], url)
+        self.assertTrue(any("核对到了" in x for x in self.entry(e["id"])["log"]))
+
+    def test_63c_ai_tone_rules_are_shared(self):
+        tone = self.m.api_state()["fashion"]["aiTone"]
+        self.assertIn("家人们", tone["words"])
+        import re
+        hit = [label for pat, label in tone["patterns"] if re.search(pat, "不是面料不好，而是码选错了")]
+        self.assertEqual(hit, ["不是……而是……"])
+
     def test_64_reschedule_failed_post(self):
         e = self.schedule()
         with patch.object(self.m, "xhs_cli", return_value=(False, None, "网络断了")):
@@ -558,6 +573,8 @@ class PanelTests(unittest.TestCase):
                 self.assertIn(rule, prompt)
             self.assertIn("UTF-8 JSON", prompt)
             self.assertIn("18 字", prompt)
+            self.assertIn("去 AI 味", prompt)
+            self.assertIn("不是……而是……", prompt)
         self.assertIn("材质细节 / 季节场景 / 克制判断", prompts[0])
 
     def test_copy_style_persists_per_account_and_standard_keeps_original_hooks(self):
@@ -627,6 +644,54 @@ class PanelTests(unittest.TestCase):
             self.m.keep_awake(False)
         self.assertTrue(proc.dead)
         self.assertIsNone(self.m.AWAKE["proc"])
+
+    # ---------------------------------------------------------------- Windows
+    def test_69b_windows_codex_prompt_goes_through_stdin(self):
+        """Windows 上 codex 是 codex.cmd：多行中文提示词不能放命令行，改成「-」从标准输入送，并提醒 python3 换 python。"""
+        cmd, stdin, prompt = self.m.codex_cmd("codex", ["exec"], "/w", "第一行\n第二行")
+        self.assertEqual(cmd[-1], "第一行\n第二行")
+        self.assertIsNone(prompt)
+        with patch.object(self.m, "IS_WIN", True):
+            cmd, stdin, prompt = self.m.codex_cmd(r"C:\npm\codex.cmd", ["exec", "-s", "danger-full-access"], r"C:\w", "第一行\n第二行")
+        self.assertEqual(cmd, [r"C:\npm\codex.cmd", "exec", "-s", "danger-full-access", "-C", r"C:\w", "-"])
+        self.assertEqual(stdin, self.m.subprocess.PIPE)
+        self.assertTrue(prompt.startswith("【这台电脑是 Windows】") and prompt.endswith("第一行\n第二行"))
+
+    def test_69c_windows_keep_awake_and_helpers(self):
+        self.m.DEMO = False
+        started = []
+        with patch.object(self.m, "IS_WIN", True), patch.object(self.m.threading, "Thread") as T:
+            T.return_value.start.side_effect = lambda: started.append(1)
+            self.m.keep_awake(True)
+            self.m.keep_awake(True)
+            self.assertTrue(self.m.AWAKE["want"])
+            self.assertEqual(len(started), 1)
+            self.m.keep_awake(False)
+            self.assertFalse(self.m.AWAKE["want"])
+            self.assertTrue(self.m.cover_font().lower().endswith((".ttc", ".ttf")))
+            self.assertNotIn("PingFang", self.m.cover_font())
+        self.assertIn("PingFang", self.m.cover_font())
+        self.assertIn("os", self.m.api_state())
+
+    def test_69d_windows_onedrive_documents(self):
+        home = Path(self.tmp.name) / "home"
+        alt = home / "OneDrive" / "Documents" / "xhs-lock-studio"
+        alt.mkdir(parents=True)
+        self.m.mutate(lambda s: s["settings"].update(lock_studio_path=str(home / "Documents" / "xhs-lock-studio")))
+        with patch.object(self.m, "HOME", home):
+            self.assertEqual(self.m.lock_root(), home / "Documents" / "xhs-lock-studio")
+            with patch.object(self.m, "IS_WIN", True):
+                self.assertEqual(self.m.lock_root(), alt)
+
+    def test_69e_windows_notify_uses_powershell_with_env(self):
+        self.m.DEMO = False
+        with patch.object(self.m, "IS_WIN", True), patch.object(self.m.shutil, "which", return_value="powershell"), \
+                patch.object(self.m.subprocess, "Popen") as P:
+            self.m.notify("所有号已暂停发布", "主号：验证码 \"引号\"")
+        args, kw = P.call_args
+        self.assertEqual(args[0][0], "powershell")
+        self.assertEqual(kw["env"]["XHS_NOTE_TEXT"], "主号：验证码 \"引号\"")
+        self.assertNotIn("验证码", args[0][-1])
 
 
     # ---------------------------------------------------------------- 三个号：拍法、实拍图、封面样式
