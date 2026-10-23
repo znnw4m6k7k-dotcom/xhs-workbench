@@ -40,8 +40,16 @@ IMG_EXT = {".jpg", ".jpeg", ".png", ".webp"}
 
 
 def field(md, key):
-    m = re.search(rf"^{key}[:：]\s*(.+?)\s*$", md, re.M)
+    m = re.search(rf"^{key}[:：][ \t]*(.*?)[ \t]*$", md, re.M)
     return m.group(1).strip() if m else ""
+
+
+def label_rule(md):
+    if field(md, "带主标") == "是":
+        return ("主标规则优先于档案中‘领标不要画’等旧说明：仅保留或还原本产品实拍中可见的品牌主标，"
+                "位置、形状、颜色和清楚可读的内容按产品照片或主标近拍；模糊内容不编造。"
+                "被遮挡时自然遮挡，不把内领主标搬到衣服外侧；不使用场景参考图的品牌，不加图片水印。")
+    return "移除衣服内领或内侧的品牌主标，保持其他衣服结构和原有设计；不出现参考图里的品牌标识，不加图片水印。"
 
 
 def task_row(md, no):
@@ -70,6 +78,8 @@ def line_value(text, key):
 
 def role(name):
     n = name.lower()
+    if n.startswith("label"):
+        return "本产品品牌主标近拍，仅用于还原主标，不参考整件衣服结构"
     if n.startswith("front"):
         return "这件产品的正面"
     if n.startswith("detail_2"):
@@ -138,7 +148,8 @@ def clothes(a, root, job, md):
         if keep_lines:
             lines.append("补充要求：" + "\n".join(keep_lines))
     lines.append("衣服按人物的姿势和图1的光线自然穿上：褶皱、垂坠、受光和阴影跟着姿势走；被原来衣服挡住、现在露出来的身体部分自然补全。竖图，保持图1的构图，不要裁切。")
-    lines.append("禁止：改动人物的脸和身材；改变衣服的颜色、材质光泽、长度、版型、纹路、印花、logo、扣子数量、领型；把褶皱抚平或面料变亮；加文字或水印。")
+    lines.append("禁止：改动人物的脸和身材；改变衣服的颜色、材质光泽、长度、版型、纹路、印花、扣子数量、领型；把褶皱抚平或面料变亮；加额外文字或水印。")
+    lines.append(label_rule(md))
     paths = [ref] + [p for p, _ in imgs]
     return "\n".join(lines), paths, f"{job.relative_to(root)}/base/{out}"
 
@@ -240,6 +251,7 @@ def product(a, root, job, md):
     ratio = "1:1 方图" if "1:1" in field(md, "输出") else "3:4 竖图"
     bg = field(md, "场景背景")
     bg = None if bg in ("", "无") else bg
+    scene_description = field(md, "背景描述")
     i = var - 1
     lines, paths = [], []
     if a.fix:
@@ -277,20 +289,27 @@ def product(a, root, job, md):
         elif kind == "面料特写":
             base = fabric or front
         refs = [(base, "要编辑的底图，也是这件衣服的样子")]
-        if bg and kind.startswith(("挂拍", "平铺")):
+        if bg:
             refs.append((root / bg, "场景，只用它的背景、光线和氛围，不要用它里面的任何衣服"))
         for f, r in ((front, "这件衣服的正面"), (key, "这件衣服最重要的设计的特写，这一块的形状、宽度和走向必须和它一样"),
                      (fabric, "面料近拍，衣服表面近看要和它一样：绒毛长短、针眼粗细、混色颗粒和光泽都不能变；布料的弯折、卷圈不是图案")):
             if f and f != base and len(refs) < 5:
                 refs.append((f, r))
         paths = [str(f.relative_to(root)) for f, _ in refs]
+        label = field(md, "主标参考")
+        if field(md, "带主标") == "是" and label not in ("", "无"):
+            if len(paths) >= 5:
+                paths.pop()
+                refs.pop()
+            paths.append(label)
+            refs.append((root / label, "本产品品牌主标近拍，只用于还原主标，不作为整件衣服或背景"))
         lines.append("".join(f"图{k + 1} 是{r}。" for k, (_, r) in enumerate(refs)))
         has_bg = bg and kind.startswith(("挂拍", "平铺"))
         if kind.startswith("挂拍"):
-            scene = "图2 的场景里" if has_bg else HANG_SCENES[i % len(HANG_SCENES)]
+            scene = "图2 的场景里" if has_bg else (scene_description or HANG_SCENES[i % len(HANG_SCENES)])
             lines.append(f"编辑图1，把这件衣服拍成一张挂拍照：用原木衣架挂在{scene}，{side}朝镜头。衣服自然下垂，有真实的重量感和轻微的褶皱，整件完整入镜，上方露出衣架钩，下方留一点空白。")
         elif kind.startswith("平铺"):
-            scene = "图2 的场景里" if has_bg else FLAT_SCENES[i % len(FLAT_SCENES)]
+            scene = "图2 的场景里" if has_bg else (scene_description or FLAT_SCENES[i % len(FLAT_SCENES)])
             lines.append(f"编辑图1，把这件衣服拍成一张平铺图：{side}朝上平铺在{scene}，相机在正上方俯拍。衣服摊平整理好，袖子自然摆放，整件完整入镜；道具只放在角落，不能压住衣服，不超过画面的 15%。")
         elif kind == "领口特写":
             lines.append(f"编辑图1，把它拍成这件衣服领口和关键设计的近拍特写：这一块的形状、走线、宽度、扣子和面料纹理完全按图1，不改任何结构，周围露出一点衣身。{CLOSE_SCENES[i % len(CLOSE_SCENES)]}，真实的微距实拍质感。")
@@ -298,12 +317,15 @@ def product(a, root, job, md):
             lines.append(f"编辑图1，把它拍成这件衣服面料的近拍特写：表面纹理完全按图1，绒毛长短、针眼粗细、混色颗粒和光泽都不能变；面料可以自然起伏，显示出柔软度，但不要拧成卷圈，也不要出现图案。{CLOSE_SCENES[i % len(CLOSE_SCENES)]}，真实的微距实拍质感。")
         else:
             sys.exit(f"不认识的类型：{kind}")
+        if bg and kind in ("领口特写", "面料特写"):
+            lines.append("背景、光线和氛围以图2场景为准，保留图1的真实结构和纹理，不取图2里的衣服、文字和标识。")
         lines.append(f"衣服本身完全按图1和下面的描述还原，不要美化：\n{garment}")
     extra = re.search(r"^## 补充要求\s*\n(.*?)(?=^## |\Z)", md, re.M | re.S)
     if extra and extra.group(1).strip() not in ("", "无"):
         lines.append("补充要求：" + extra.group(1).strip())
     lines.append(f"画面：{ratio}，衣服居中，四周留出空间方便裁切。真实的相机实拍质感，像小红书博主自己拍的，不要电商白底棚拍感，不要 3D 渲染感。")
-    lines.append("禁止：改变衣服的颜色、材质光泽、长度、版型、纹路、印花、logo、扣子数量、领型；把褶皱抚平或面料变亮；画出领标、吊牌上的字；出现人、手、模特或人台；加文字、水印或贴纸。")
+    lines.append("禁止：改变衣服的颜色、材质光泽、长度、版型、纹路、印花、扣子数量、领型；把褶皱抚平或面料变亮；出现吊牌、人、手、模特或人台；加额外文字、水印或贴纸。")
+    lines.append(label_rule(md))
     return "\n".join(lines), paths, f"{job.relative_to(root)}/out/{out}"
 
 

@@ -194,6 +194,17 @@ def find_bin(name, configured, extra):
 
 
 def codex_bin():
+    configured = load_state()["settings"].get("codex_path")
+    if IS_WIN and not configured:
+        # 桌面版可能已升级，PATH 却仍指向旧的 standalone CLI。
+        # 优先复用当前桌面运行时，再找桌面版的版本目录，最后才查 PATH。
+        current = os.environ.get("CODEX_CLI_PATH")
+        if current and Path(current).is_file():
+            return current
+        desktop = HOME / "AppData/Local/OpenAI/Codex/bin"
+        candidates = sorted(desktop.glob("*/codex.exe"), key=lambda p: p.stat().st_mtime, reverse=True)
+        if candidates:
+            return str(candidates[0])
     return find_bin("codex", load_state()["settings"].get("codex_path"),
                     ["/Applications/Codex.app/Contents/Resources/codex", "~/.local/bin/codex",
                      "/opt/homebrew/bin/codex", "/usr/local/bin/codex",
@@ -204,7 +215,13 @@ def codex_bin():
 
 def child_env(**extra):
     """子进程环境：发布脚本按 UTF-8 输出，Windows 上不会因为 GBK 读乱。"""
-    return dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8", **extra)
+    env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8", **extra)
+    if IS_WIN:
+        # Codex 桌面程序可能在 Python 安装前就已启动，继承的 PATH 尚未刷新。
+        # 工作台本身正在用的解释器一定存在，也让 AI 的 python / pip 命令能找到它。
+        python_dir = Path(sys.executable).parent
+        env["PATH"] = os.pathsep.join([str(python_dir), str(python_dir / "Scripts"), env.get("PATH", "")])
+    return env
 
 
 # Windows 上的 Codex 按 AGENTS.md 里写的 python3 去跑常会找不到命令，交任务时提前说一声
@@ -424,11 +441,13 @@ COPY_STYLES = {"gaosaka": "高坂风格 · 品牌主理人", "standard": "日常
 def item_facts(item):
     if not item:
         return ""
-    keys = [("code", "款号"), ("name", "名称"), ("category", "品类"), ("colors", "颜色"), ("sizes", "尺码"),
+    keys = [("code", "款号"), ("name", "名称"), ("category", "品类"), ("colors", "颜色"),
             ("fabric", "面料成分"), ("texture", "材质手感"), ("pain", "痛点（这款解决什么）"),
             ("price", "价格"), ("fit", "版型和选码建议"), ("points", "卖点")]
     parts = ["%s：%s" % (label, item.get(k)) for k, label in keys if item.get(k)]
-    return "单品资料（唯一可信来源）：" + "；".join(parts) + "。"
+    return ("单品资料（唯一可信来源）：" + "；".join(parts) + "。"
+            + ("补充资料来源：%s。" % item["factsSource"] if item.get("factsSource") else "")
+            + "未填写的成分、尺码、款号、价格是未知信息，文案不得推测或补写。以材质、特色和痛点为主，不写尺码或选码建议。")
 
 
 def find_item(st, iid):
@@ -549,7 +568,7 @@ def topic_line(t, count):
         return ""
     cell = " × ".join(x for x in (t.get("scene"), t.get("body")) if x)
     return ("选题：「%s」%s。%s" % (t["text"], "（%s）" % cell if cell else "",
-            "两篇都围绕这个选题，一篇从身材尺码切入，一篇从场景搭配切入。" if count == 2 else "这篇围绕这个选题写，标题和开头直接回应它。"))
+            "两篇都围绕这个选题，一篇从材质和产品细节切入，一篇从场景搭配切入。" if count == 2 else "这篇围绕这个选题写，标题和开头直接回应它。"))
 
 
 def item_topic(st, aid, iid):
@@ -713,6 +732,7 @@ def run_job(job):
     args = shlex.split(load_state()["settings"].get("codex_args") or DEFAULT_SETTINGS["codex_args"], posix=not IS_WIN)
     cmd, stdin, prompt = codex_cmd(cx, args, work, job["prompt"])
     with open(log_path, "w", encoding="utf-8") as fh:
+        fh.write("Codex executable: %s\n" % cx)
         fh.write("$ codex %s\n\n" % " ".join(args))
         fh.flush()
         try:
@@ -742,11 +762,15 @@ def run_job(job):
         return
     ok = code == 0
     summary = ""
-    if not ok and job["kind"] == "lock":
-        summary = str(lock_fail(job["params"], "Codex 退出码 %s" % code))
+    if not ok:
+        summary = codex_failure(tail, code)
+        if job["kind"] == "lock":
+            summary = str(lock_fail(job["params"], summary))
     if ok:
         try:
             verify_job(job, result, before)
+            if job["kind"] == "lock":
+                apply_job_watermark(job)
         except (ValueError, TypeError, OSError) as e:
             ok, summary = False, str(e)
     if ok and isinstance(result, dict):
@@ -755,6 +779,21 @@ def run_job(job):
                summary=summary or ("完成" if ok else "Codex 退出码 %s，看日志" % code))
     if ok:
         chain_after(job)
+
+
+def codex_failure(tail, code):
+    """保留真正的失败原因，避免只报退出码或被非致命启动警告掩盖。"""
+    if "not supported when using Codex with a ChatGPT account" in tail:
+        return "Codex CLI 与所选模型不兼容：当前 ChatGPT 登录被拒绝。请检查日志中的 CLI 路径和版本，使用支持该模型的新版 CLI。"
+    errors = [line.removeprefix("ERROR:").strip() for line in tail.splitlines()
+              if line.startswith("ERROR:") and not line.startswith("ERROR: Reconnecting")]
+    if errors:
+        data = parse_json_loose(errors[-1])
+        detail = data.get("detail") if isinstance(data, dict) else None
+        return "Codex 失败：%s" % str(detail or errors[-1])[:800]
+    if "request timed out" in tail or "stream disconnected" in tail:
+        return "Codex 连接超时或断开，请检查网络和连接配置（WebSocket / HTTPS），详情见日志。"
+    return "Codex 退出码 %s，看日志" % code
 
 
 def codex_cmd(cx, args, work, prompt):
@@ -811,6 +850,16 @@ def chain_after(job):
     """出图完成后：颜色比对提醒，再按出图时的设置自动挑 A 级图（没有 A 就用 B）写文案；失败只记在任务里，不影响出图结果。
     评 C 的不再由工作台另开任务返工（agent 自己已经返工过一次，再开一轮要把规则从头读一遍，费时间也费额度），没过的版本留给人挑。"""
     p = job.get("params") or {}
+    if job["kind"] == "spec":
+        st = load_state()
+        it = find_item(st, p.get("item")) or {}
+        if (it.get("fabric") or it.get("texture")) and (it.get("points") or it.get("pain")) and not any(
+                t.get("item") == it.get("id") for t in st.get("topics", [])):
+            try:
+                queue_topics(it.get("account") or st["accounts"][0]["id"], 5, it["id"])
+            except ValueError as e:
+                print("topics after spec:", e)
+        return
     if job["kind"] == "lock":
         try:
             color_check(job)
@@ -835,7 +884,10 @@ def chain_after(job):
             raise ValueError("没有 A/B 级图，没自动写文案")
         it = find_item(load_state(), p["item"])
         pick += real_photos(it)[:max(0, 9 - len(pick))] if it else []   # 这款传过的实拍图接在 AI 图后面一起用
-        a = p["autoWrite"]
+        a = dict(p["autoWrite"])
+        account = next((x for x in load_state()["accounts"] if str(x["id"]) == str(a["account"])), {})
+        if "watermark" in p and (a.get("cover") or account_cover(account)) == "logo":
+            a["cover"] = "none"
         count = a["count"] if len(pick) >= 4 else 1
         t = item_topic(load_state(), a["account"], p["item"])
         r_write_from_images({"account": a["account"], "item": p["item"], "images": pick, "count": count,
@@ -1125,7 +1177,7 @@ def list_images(d, limit=12):
 
 
 # ---------------------------------------------------------------- 锁图工作台（xhs-lock-studio）
-PHOTO_SLOTS = {"front": "正面", "back": "背面", "detail_1": "面料近拍", "detail_2": "关键设计特写", "tag": "吊牌"}
+PHOTO_SLOTS = {"front": "正面", "back": "背面", "detail_1": "面料近拍", "detail_2": "关键设计特写", "tag": "吊牌", "label": "品牌主标"}
 # 套装里主件以外的每一件：照片存成 <件编号>_front / _back / _detail
 PIECE_SLOTS = {"front": "正面", "back": "背面", "detail": "细节"}
 
@@ -1414,6 +1466,34 @@ def item_view(it, rb, st):
     for p, x in (st.get("imgApproved") or {}).items():
         if p in it["grades"]:
             it["grades"][p] = {"grade": "人工", "note": x.get("why") or "没过检查，人工挑的"}
+    originals = [(v, PHOTO_SLOTS[k]) for k, v in it["photos"].items() if v and k not in ("tag", "label")]
+    originals += [(p, "实拍") for p in it["realPhotos"]]
+    originals += [(str(p), "平铺面料") for p in d.glob("detail_1_flat.*") if p.suffix.lower() in IMG_EXT]
+    originals += [(v, "套装" + k) for photos in it["piecePhotos"].values() for k, v in photos.items() if v]
+    it["originalImages"] = list(dict.fromkeys(p for p, _ in originals))
+    it["imageLibrary"] = [{"path": p, "source": "original", "role": role, "grade": "", "selectable": True}
+                          for p, role in dict(originals).items()]
+    seen = set(it["originalImages"])
+    label = it["photos"].get("label")
+    reference_inputs = [(label, "品牌主标近拍")] if label else []
+    known_refs = set(list_refs())
+    for batch in it["lockJobs"]:
+        recipe = batch["recipe"]
+        reference_inputs += [(p, "参考素材") for p in list(recipe.get("refs") or []) + [recipe.get("sceneRef")] if p in known_refs]
+    for p, role in reference_inputs:
+        if p not in seen:
+            seen.add(p)
+            it["imageLibrary"].append({"path": p, "source": "original", "role": role, "grade": "", "selectable": False})
+    for batch in it["lockJobs"]:
+        for p in batch["images"] + batch["rejectedFiles"]:
+            if p in seen:
+                continue
+            seen.add(p)
+            rejected = p in batch["rejectedFiles"] or p in (st.get("imgRejected") or {})
+            grade = "C" if rejected else ((it["grades"].get(p) or {}).get("grade") or "未评级")
+            it["imageLibrary"].append({"path": p, "source": "ai", "role": "AI 生成", "grade": grade,
+                                       "batch": batch["name"], "selectable": not rejected and grade != "C",
+                                       "restorePath": next((src for src, rec in (st.get("imgRejected") or {}).items() if rec.get("to") == p), "")})
     it["drafts"] = len([r for r in rb["reviews"] if any(str(x) in str(r.get("images")) for x in imgs)]) if imgs else 0
     running = [j for j in st["jobs"] if j.get("params", {}).get("item") == it["id"] and j["status"] in ("queued", "running")]
     it["busy"] = running[0]["kind"] if running else ""
@@ -1566,12 +1646,20 @@ def lock_job_md(it, p, job_name):
     base = "library/originals/%s" % it["lockName"]
     rel = lambda f: "%s/%s" % (base, Path(f).name)
     prod = ["%s（%s）" % (rel(f), label) for f, label in product_refs(it)]
+    label_photo = find_slot(item_dir(it), "label") if p.get("keepLabel") else None
+    if label_photo:
+        if len(it.get("pieces") or []) >= 3:
+            raise ValueError("四件套装附图已满，请将主标拍清在正面产品照里，或先不附单独主标照")
+        prod = prod[:3] + ["%s（本产品品牌主标，只用于还原主标）" % rel(label_photo)]
     face = FACE_MODES[p["face"]].format(model=p.get("model") or "")
     tag = "模特" if p["face"] == "model" else "产品"
     rows = []
     for i, ref in enumerate(p["refs"]):
         rows.append("| %d | library/references/%s | %s_%s_%02d_%s.png |" % (i + 1, Path(ref).name, safe_name(it["lockName"]), tag, i + 1, safe_name(Path(ref).stem)))
     extra = (p.get("note") or "").strip() or "无"
+    extra += "\n\n" + item_facts(it) + "\n出图以实拍外观为准，材质和卖点仅辅助理解，不将营销描述画成字，不改变衣服结构。"
+    if p.get("shootType") == "lookbook":
+        extra = "影棚 Lookbook：使用影棚参考图中的干净背景、柔和光线及完整穿搭，系列构图统一；保留参考图的动作和比例。\n" + extra
     if it.get("pieces"):
         names = [it.get("mainPiece") or "主件"] + [x["name"] for x in it["pieces"]]
         extra = ("套装：%s，一共 %d 件。每件都按自己的照片还原（颜色、版型、细节分开对），怎么搭照素材图；"
@@ -1588,6 +1676,7 @@ def lock_job_md(it, p, job_name):
     return """# 出图任务 %s
 
 模式: 只锁产品
+带主标: %s
 原图目录: %s
 脸部处理: %s
 输出: 3:4，1080x1440，共 %d 张
@@ -1603,12 +1692,22 @@ def lock_job_md(it, p, job_name):
 
 ## 补充要求
 %s
-""" % (job_name, base, face, len(p["refs"]), "\n".join("图%d. %s" % (i + 2, x) for i, x in enumerate(prod)), "\n".join(rows), extra)
+""" % (job_name, "是" if p.get("keepLabel") else "否", base, face, len(p["refs"]), "\n".join("图%d. %s" % (i + 2, x) for i, x in enumerate(prod)), "\n".join(rows), extra)
 
 
 def lock_prompt(p, job_name):
+    if p.get("shootType") in ("still", "detail"):
+        return ("读 AGENTS.md 和 .agents/skills/xhs-lock/modes/产品套图.md，执行 jobs/%s/job.md。" % job_name
+                + "品牌主标严格按任务单的带主标选项；图片 Logo 水印由工作台后处理，不要生图模型绘制水印。"
+                + "按逐张任务表运行 python tools/build_prompt.py product jobs/%s <序号>，读取生成的 JSON 原样调用生图工具并附上全部图片。" % job_name
+                + "没有人、手、模特或人台；衣服和面料完全按实拍照片，不补造缺失的背面或成分。仅做表里列出的图。"
+                + "每张放大核对档案的必过条目，评 A/B/C，最多出两版（返工一次）。失败版本存 rejected/，不要删。"
+                + "运行 tools/contact_sheet.py，写 report.md（每张一行：文件名：评级 A/B/C，原因），"
+                + "把模型、seed（没有就空）、实际附图和 retries 记录到 gen.json。"
+                + "最后一行只输出 {\"ok\":true,\"images\":%d}；只有全部交付才可报成功。" % len(p["refs"]))
     with_model = p["face"] == "model"
     return ("读 AGENTS.md，使用 xhs-lock 技能的「模式 C：只锁产品」，执行 jobs/%s/job.md：" % job_name
+            + "品牌主标严格按任务单的带主标选项；Logo 水印由工作台后处理，不要让生图模型绘制水印。"
             + ("每张把素材图当编辑底图，动作、比例、场景和配饰都不动，衣服换成原图目录里的产品；脸和发型换成任务单「脸部处理」写的模特，按 C3「换成我们的模特」三步做（衣服先过检查，再贴真脸、融合）。附图按任务单的顺序。"
                if with_model else
                "每张把素材图当编辑底图，人、脸、动作、比例、场景和配饰都不动，只把衣服换成原图目录里的产品，附图按任务单的顺序；脸按任务单的「脸部处理」来。")
@@ -1626,17 +1725,19 @@ def lock_prompt(p, job_name):
 
 def spec_prompt(it):
     base = "library/originals/%s" % it["lockName"]
-    return ("读 AGENTS.md 和 library/originals/产品档案模板.md，再看 %s/ 里的全部照片，按模板给这件衣服写 %s/spec.md：一级标题「# 产品档案：%s」，"
+    return ("产品资料：%s\n以用户已填的材质、手感、特色和痛点为依据，结合照片核对外观。文字不能用于猜测成分比例或覆盖实拍结构。\n"
+            "读 AGENTS.md 和 library/originals/产品档案模板.md，再看 %s/ 里的产品照片，按模板给这件衣服写 %s/spec.md：一级标题「# 产品档案：%s」，"
             "「## 锁定参数」下写「### 衣服」各项，最后写「### 检查要点（放大逐条看）」，分「必过」和「尽量」两组，每条一行、编号、放大看一眼就能判对错。"
             "已有 spec.md 时在原文基础上补全，不要删掉人写的内容。"
             "面料近拍（detail_1*）是拧成卷圈或堆成大褶的，从里面裁一块平整的区域存成 detail_1_flat.jpg；没有 detail_2_* 关键设计特写时，从 front.jpg 把最有辨识度的那块裁出来放大，存成 detail_2_<部位英文>.jpg。"
             "检查要点里只凭照片看不准的条目（比如背面细节没拍到、颜色可能偏色），在这一条末尾加「（待确认）」，让人对着实物核对；看得准的不要加。"
             "照片有需要人处理的问题（缺背面、面料图模糊、光线偏色等），一行一条写进 %s/photo_notes.txt，没有就写一个空文件。"
-            "再写 %s/info.json，只读照片和吊牌（tag*）上看得到的，看不到的留空字符串，不要猜："
-            "{\"name\":\"颜色+特征+品类，≤12 字，如 银灰长毛翻领外套\",\"code\":\"吊牌款号\",\"category\":\"从 %s 里选一个\","
-            "\"colors\":\"\",\"sizes\":\"吊牌尺码，空格分开\",\"fabric\":\"吊牌成分原文\",\"price\":\"吊牌价，只写数字\",\"fit\":\"\",\"points\":\"照片里看得到的设计点，逗号分开，不写功效\"}。"
+            "不需要吊牌，不读取 tag* 历史图片，不要求补吊牌或尺码。成分比例、尺码、款号、价格不能从外观推断，用户没提供就留空。"
+            "再写 %s/info.json，只用用户已填的产品资料和照片里明确可见的外观，未知项留空，不要猜："
+            "{\"name\":\"颜色+特征+品类，≤12 字\",\"code\":\"\",\"category\":\"从 %s 里选一个\","
+            "\"colors\":\"\",\"sizes\":\"\",\"fabric\":\"用户已提供的材质，未提供就留空\",\"price\":\"\",\"fit\":\"\",\"points\":\"用户已提供的特色及照片可见的设计点，逗号分开\"}。"
             + suit_note(it)
-            + "只写这几个文件，不要出图。我已经在工作台点了按钮，这就是确认。最后一行只输出：{\"ok\":true}") % (base, base, it.get("name") or it["lockName"], base, base, "、".join(FASHION.get("categories", [])))
+            + "只写这几个文件，不要出图。我已经在工作台点了按钮，这就是确认。最后一行只输出：{\"ok\":true}") % (item_facts(it), base, base, it.get("name") or it["lockName"], base, base, "、".join(FASHION.get("categories", [])))
 
 
 def suit_note(it):
@@ -1655,7 +1756,7 @@ def write_prompt(p, st):
         ("先读写法手册 %s，按里面的骨架和口吻写；和下面账号设定冲突时听账号设定。" % COPY_GUIDE) if COPY_GUIDE.is_file() else "",
         copy_rules(p["account"]),
         item_facts(it),
-        ("模特和尺码：%s。正文里要写清模特身高体重穿什么码，再给一句选码建议。" % it["modelSize"]) if it.get("modelSize") else "",
+        "本任务优先于账号模板和写作手册：只按已有材质、特色、痛点和图片写文案，不写尺码、身高体重或选码建议，也不要求补这些信息。",
         ("痛点「%s」要在开头三行里点出来，正文给出这款怎么解决。" % it["pain"]) if it.get("pain") else "",
         topic_line(find_topic(st, p.get("topic") or ""), p["count"]),
     ]
@@ -1665,7 +1766,7 @@ def write_prompt(p, st):
     else:
         lines.append("这次没有配图，只按单品资料写，images 写空数组 []，不要生成图片。")
     if imgs and p["count"] == 2:
-        lines.append("拆成 2 篇：一篇偏「身材/尺码怎么穿」，一篇偏「场景怎么搭」，角度、标题、开头都不能重复。图片分给两篇，每篇至少 2 张，按上面的顺序分，各自第一张作封面。")
+        lines.append("拆成 2 篇：一篇偏「材质和产品细节」，一篇偏「场景怎么搭」，角度、标题、开头都不能重复。图片分给两篇，每篇至少 2 张，按上面的顺序分，各自第一张作封面。")
     elif imgs:
         lines.append("1 篇，图片全用，按上面的顺序，第一张是封面。")
     cover = p.get("cover") or ("text" if p.get("coverText") else "none")
@@ -1674,8 +1775,11 @@ def write_prompt(p, st):
         lines.append("封面加字：用 Python PIL 在每篇封面图上方 1/5 处加一行 ≤12 字的大字（粗体、白字带半透明深色底条，字号约图宽的 1/12，中文字体用 %s），另存到 %s/ 下，用加字后的图替换这一篇的第一张；原图不改。" % (cover_font(), cdir))
     elif imgs and cover == "logo":
         logo = account_logo(next((a for a in st["accounts"] if str(a["id"]) == str(p["account"])), {}))
-        lines.append("品牌水印：用 Python PIL 把 %s 贴到这一篇每张图的右下角（宽约图宽的 1/5，离右边和下边各留图宽的 4%%，PNG 的透明部分保持透明），"
-                     "另存到 %s/ 下，用贴好的图按原顺序替换；原图不改。封面不加别的字。" % (logo, cdir))
+        targets = [src for src in imgs if not (image_batch(src) and read_json_file(image_batch(src) / "branding.json").get("watermark"))]
+        if targets:
+            lines.append("品牌水印：仅给以下尚未带水印的图添加 Logo，其余已有水印的图原样使用，不重复叠加：%s。用 Python PIL 把 %s 贴到右下角（宽约图宽的 1/5，边距 4%%，保留透明），另存到 %s/ 下，按原顺序替换；原图不改。" % ("、".join(targets), logo, cdir))
+        else:
+            lines.append("所选图片已有 Logo 水印，原样使用，禁止重复叠加水印。")
     elif imgs:
         lines.append("封面和其他图都不要加字、不要加贴纸，原图直接用。")
     lines += [
@@ -1689,7 +1793,7 @@ def write_prompt(p, st):
         AI_TONE_RULE,
         "写完把全部稿件存成一个 UTF-8 JSON 文件 %s，格式：" % p["outFile"],
         '{"drafts":[{"title":"入审用的标题","titles":["标题1","标题2","标题3"],"body":"正文","tags":["话题1","话题2"],"comment":"置顶评论","images":["本篇用的图片绝对路径，第一张是封面"]}]}',
-        "每篇另写一条 ≤150 字的置顶评论（comment）：再写一次模特身高体重和穿的码，按 2–3 种身材给选码建议，最后一句请大家报身高体重来问码。",
+        "每篇另写一条 ≤150 字的置顶评论（comment）：补充一条真实的材质、做工细节或适用场景，也可询问读者想看哪处细节；不写尺码答疑。",
         "images 只能用上面给的图片路径（加了字或水印的用另存的新路径）。我已经在工作台点了按钮，这就是确认，不用再问我。",
         "全部完成后，最后一行只输出：{\"ok\":true,\"drafts\":<篇数>}",
     ]
@@ -1791,7 +1895,8 @@ def r_item_new(body):
         require_account(aid)
         if isinstance(c, dict) and c.get("face"):
             picked[str(aid)] = clean_cast(c.get("face"), c.get("model") or "")
-    it = r_item_save({"name": name, "account": body.get("account") or "", "status": "在售"})["item"]
+    it = r_item_save(dict({"name": name, "account": body.get("account") or "", "status": "在售", "deferTopics": True},
+                          **{k: str(body.get(k) or "").strip()[:2000] for k in ("fabric", "texture", "points", "pain")}))["item"]
     if picked:
         mutate(lambda s: [bind_cast(s, it["id"], aid, c, "建款时选的") for aid, c in picked.items()])
     if auto:
@@ -1861,7 +1966,8 @@ def r_item_photo(body):
     if body["slot"] == "detail_1":
         for f in d.glob("detail_1_flat*"):
             f.unlink()
-    mutate(lambda s: [x.__setitem__("specOk", False) for x in s["items"] if x["id"] == it["id"]])
+    if body["slot"] != "label":
+        mutate(lambda s: [x.__setitem__("specOk", False) for x in s["items"] if x["id"] == it["id"]])
     return {"ok": True, "path": str(d / name)}
 
 
@@ -2375,8 +2481,15 @@ def r_lock_job(kind, p):
     else:
         if not it.get("specOk"):
             raise ValueError("档案还没核对，先在第 1 步核对检查要点并确认")
+        shoot_type = p.get("shootType") or "reference"
+        if shoot_type not in ("reference", "mirror", "street", "lookbook", "still", "detail"):
+            raise ValueError("未知出图类型")
+        if shoot_type in ("still", "detail"):
+            return r_product_job(it, p)
         if p.get("account"):
             require_account(p["account"])
+        branding = branding_options(p)
+        p.update(branding)
         bound = cast_of(st, it["id"], p.get("account"))
         if bound:
             # 建款时（或第一次出图时）定下的模特和脸部处理，每次出图都用它，不能临时换
@@ -2409,6 +2522,8 @@ def r_lock_job(kind, p):
             jd = lock_root() / "jobs" / name
         (jd / "out").mkdir(parents=True)
         (jd / "rejected").mkdir()
+        branding = snapshot_branding(jd, branding)
+        p.update(branding)
         rework = safe_name(str(p.get("reworkOf") or "")) if p.get("reworkOf") else ""
         auto = p.get("autoWrite") if isinstance(p.get("autoWrite"), dict) else None
         if auto:
@@ -2429,6 +2544,8 @@ def r_lock_job(kind, p):
             "job": name, "item": it["id"], "account": str(p.get("account") or ""), "style": p["style"], "face": p["face"],
             "model": p.get("model") or "", "modelPhotos": [v for v in (model or {}).get("faces", {}).values() if v],
             "product": [str(f) for f, _ in product_refs(it)],
+            "shootType": shoot_type,
+            **branding,
             "refs": refs, "note": str(p.get("note") or "")[:300], "createdAt": now_ms(), "reworkOf": rework,
             "rest": rest, "restAuto": rest_auto, "restOf": bool(p.get("restOf")),
             "rows": [{"out": "%s_%s_%02d_%s.png" % (safe_name(it["lockName"]), tag_, i + 1, safe_name(Path(r).stem)), "ref": r} for i, r in enumerate(refs)],
@@ -2450,10 +2567,163 @@ def r_lock_job(kind, p):
                     bind_cast(s, it["id"], acc, {"face": p["face"], "model": p.get("model") or ""}, "第一次出图时定下")
         mutate(remember)
         job = {"id": uuid.uuid4().hex[:10], "kind": "lock", "cwd": str(lock_root()),
-               "params": {"item": it["id"], "account": str(p.get("account") or (auto or {}).get("account") or ""), "face": p["face"], "model": p.get("model") or "", "refs": refs, "jobDir": str(jd), "autoWrite": auto, "style": p["style"], "reworkOf": rework},
+               "params": {"item": it["id"], "account": str(p.get("account") or (auto or {}).get("account") or ""), "face": p["face"], "model": p.get("model") or "", "refs": refs, "jobDir": str(jd), "autoWrite": auto, "style": p["style"], "reworkOf": rework, "shootType": shoot_type, **branding},
                "title": ("续出 · " if p.get("restOf") else "返工 · " if rework else "试拍 · " if trial else "出图 · ") + "%s · %s%d 张" % (it["name"], (styles[p["style"]] + " ") if p["style"] in styles else "", len(refs)), "prompt": lock_prompt(p, name),
                "status": "queued", "createdAt": now_ms(), "estimateMin": MIN_PER_IMAGE[p["face"]] * len(refs)}
     mutate(lambda s: s["jobs"].append(job))
+    return {"ok": True, "job": job}
+
+
+PRODUCT_BACKGROUNDS = {
+    "white": "白色无缝背景、柔和漫射光，不偏色，不加装饰道具",
+    "linen": "米白亚麻布背景、自然柔光，背景不能改变产品本身的织纹",
+    "wood": "浅色木质背景、自然柔光，道具不得遮挡衣服",
+}
+
+
+def branding_options(p):
+    keep, watermark = p.get("keepLabel", False), p.get("watermark", False)
+    if not isinstance(keep, bool) or not isinstance(watermark, bool):
+        raise ValueError("主标和水印选项须为开或关")
+    logo = ""
+    if watermark:
+        aid = str(p.get("account") or "")
+        require_account(aid)
+        logo = account_logo(next(a for a in load_state()["accounts"] if str(a["id"]) == aid))
+        if not logo:
+            raise ValueError("请先为当前账号上传 Logo，再选择添加水印")
+        try:
+            from PIL import Image
+            with Image.open(logo) as im:
+                im.verify()
+        except (ImportError, OSError) as e:
+            raise ValueError("Logo 图片无法读取，请安装 Pillow 或重新上传 Logo") from e
+    return {"keepLabel": keep, "watermark": watermark, "watermarkLogo": logo}
+
+
+def snapshot_branding(jd, branding):
+    branding = dict(branding)
+    if branding["watermark"]:
+        assets = jd / "assets"
+        assets.mkdir(exist_ok=True)
+        src = Path(branding["watermarkLogo"])
+        target = assets / ("logo" + src.suffix.lower())
+        shutil.copy2(src, target)
+        branding["watermarkLogo"] = str(target)
+    return branding
+
+
+def apply_job_watermark(job):
+    """确定性贴入真实 Logo；保留无水印 AI 原片，重复调用不叠加。"""
+    p = job["params"]
+    if not p.get("watermark"):
+        return
+    try:
+        from PIL import Image
+    except ImportError as e:
+        raise ValueError("加水印需要 Pillow") from e
+    jd = Path(p["jobDir"])
+    raw = jd / "raw"
+    raw.mkdir(exist_ok=True)
+    with Image.open(p["watermarkLogo"]) as logo_im:
+        logo = logo_im.convert("RGBA")
+    for f in sorted((jd / "out").iterdir()):
+        if f.suffix.lower() not in IMG_EXT:
+            continue
+        original = raw / f.name
+        if not original.exists():
+            shutil.copy2(f, original)
+        with Image.open(original) as im:
+            canvas = im.convert("RGBA")
+        w, h = canvas.size
+        mark = logo.copy()
+        mark.thumbnail((max(1, round(w * .20)), max(1, round(h * .12))), Image.Resampling.LANCZOS)
+        margin = max(1, round(w * .04))
+        canvas.alpha_composite(mark, (max(0, w - mark.width - margin), max(0, h - mark.height - margin)))
+        output = canvas if f.suffix.lower() in (".png", ".webp") else canvas.convert("RGB")
+        output.save(f)
+    (jd / "branding.json").write_text(json.dumps({"watermark": True, "logo": p["watermarkLogo"], "originals": "raw"}, ensure_ascii=False), "utf-8")
+    tool = lock_root() / "tools/contact_sheet.py"
+    if tool.is_file() and (jd / "compare.jpg").is_file():
+        done = subprocess.run([sys.executable, str(tool), str(jd)], capture_output=True, text=True, encoding="utf-8", env=child_env())
+        if done.returncode:
+            raise ValueError("水印已处理，但对比总览更新失败：" + done.stderr[-300:])
+
+
+def r_product_job(it, p):
+    """静物/特写直接编辑产品照片，不需要参考图库，也不改动账号的固定模特。"""
+    if it.get("pieces"):
+        raise ValueError("套装请先使用人物参考图出图；静物和特写目前支持单件产品")
+    aid = str(p.get("account") or "")
+    if aid:
+        require_account(aid)
+    typ = p["shootType"]
+    branding = branding_options(p)
+    scene_ref = p.get("sceneRef") or ""
+    if scene_ref and scene_ref not in list_refs():
+        raise ValueError("请从参考图库选择静物参考图")
+    layouts = {"mix": ["挂拍正面", "平铺正面"], "hang": ["挂拍正面"], "flat": ["平铺正面"], "back": ["挂拍背面"]} if typ == "still" else {
+        "mix": ["领口特写", "面料特写"], "design": ["领口特写"], "material": ["面料特写"]}
+    layout = p.get("layout") or "mix"
+    if layout not in layouts:
+        raise ValueError("不支持的静物或特写内容")
+    count = bounded_int(p.get("count"), 4 if typ == "still" else 2, 6)
+    kinds = p.get("shotKinds")
+    if kinds is None:
+        kinds = [layouts[layout][i % len(layouts[layout])] for i in range(count)]
+    allowed = {k for v in layouts.values() for k in v}
+    if not isinstance(kinds, list) or not 1 <= len(kinds) <= 6 or any(k not in allowed for k in kinds):
+        raise ValueError("出图清单无效")
+    if any(k.endswith("背面") for k in kinds) and not find_slot(item_dir(it), "back"):
+        raise ValueError("没有背面实拍照，请先补背面照或改选正面；不会凭空生成背面结构")
+    background = p.get("background") or "white"
+    if background not in PRODUCT_BACKGROUNDS:
+        raise ValueError("未知背景")
+    auto = p.get("autoWrite")
+    if auto:
+        if not isinstance(auto, dict):
+            raise ValueError("文案设置无效")
+        require_account(auto.get("account"))
+        auto = {"account": str(auto["account"]), "count": 2 if str(auto.get("count")) == "2" else 1}
+    trial = bool(p.get("trial")) and len(kinds) > 1 and not p.get("restOf")
+    rest, rest_auto = (kinds[1:], auto) if trial else ([], None)
+    kinds = kinds[:1] if trial else kinds
+    if trial:
+        auto = None
+    label = "产品静物" if typ == "still" else "面料与设计特写"
+    name = "%s_%s_%s_%s" % (datetime.datetime.now().strftime("%Y%m%d_%H%M"), safe_name(it["lockName"]), label, uuid.uuid4().hex[:4])
+    jd = lock_root() / "jobs" / name
+    (jd / "out").mkdir(parents=True)
+    (jd / "rejected").mkdir()
+    branding = snapshot_branding(jd, branding)
+    base = "library/originals/%s" % it["lockName"]
+    front = str(find_slot(item_dir(it), "front"))
+    rows = [{"kind": k, "out": "%s_产品_%02d.png" % (safe_name(it["lockName"]), i + 1), "ref": front} for i, k in enumerate(kinds)]
+    note = str(p.get("note") or "").strip()[:1000]
+    md = ("# 出图任务 %s\n\n模式: 产品套图\n原图目录: %s\n产品目录: %s\n颜色: %s\n"
+          "场景背景: %s\n背景描述: %s\n带主标: %s\n主标参考: %s\n输出: 3:4，1080x1440，共 %d 张\n\n## 逐张任务\n"
+          "| 序号 | 类型 | 原图目录 | 第几种场景 | 输出文件名 |\n|---|---|---|---|---|\n" % (name, base, base, base,
+              Path(scene_ref).relative_to(lock_root()).as_posix() if scene_ref else "无", "" if scene_ref else PRODUCT_BACKGROUNDS[background],
+              "是" if branding["keepLabel"] else "否", (base + "/" + find_slot(item_dir(it), "label").name) if branding["keepLabel"] and find_slot(item_dir(it), "label") else "无", len(rows)))
+    md += "\n".join("| %d | %s | %s | %d | %s |" % (i + 1, row["kind"], base, i + 1, row["out"]) for i, row in enumerate(rows))
+    md += "\n\n## 补充要求\n背景以此为准：%s。保持衣服原色和真实纹理。%s\n%s\n材质和特色仅辅助理解，不能改变照片中的结构，不渲染营销文字。\n" % ("使用所附参考图的背景、光线和摆放氛围，只取场景，不取他人产品、文字、主标" if scene_ref else PRODUCT_BACKGROUNDS[background], note, item_facts(it))
+    (jd / "job.md").write_text(md, "utf-8")
+    refs = [front] * len(rows)
+    rework = safe_name(str(p.get("reworkOf") or "")) if p.get("reworkOf") else ""
+    recipe = {"job": name, "item": it["id"], "account": aid, "shootType": typ, "layout": layout, "background": background,
+              "face": "none", "model": "", "style": "own", "refs": refs, "product": [str(f) for f, _ in product_refs(it)],
+              "note": note, "rows": rows, "shots": kinds, "rest": [front] * len(rest), "restShots": rest,
+              "restAuto": rest_auto, "reworkOf": rework, "createdAt": now_ms(), "sceneRef": scene_ref, **branding}
+    (jd / "recipe.json").write_text(json.dumps(recipe, ensure_ascii=False, indent=1), "utf-8")
+    params = {"item": it["id"], "account": aid, "shootType": typ, "face": "none", "refs": refs,
+              "style": "own", "jobDir": str(jd), "reworkOf": rework, "autoWrite": auto, "sceneRef": scene_ref, **branding}
+    job = {"id": uuid.uuid4().hex[:10], "kind": "lock", "cwd": str(lock_root()), "params": params,
+           "title": ("试拍 · " if trial else "出图 · ") + "%s · %s%d 张" % (it["name"], label, len(rows)),
+           "prompt": lock_prompt(params, name), "status": "queued", "createdAt": now_ms(), "estimateMin": 3 * len(rows)}
+    def remember(s):
+        s["jobs"].append(job)
+        s.setdefault("jobAcc", {})[name] = aid
+    mutate(remember)
     return {"ok": True, "job": job}
 
 
@@ -2468,8 +2738,18 @@ def r_lock_rest(p):
     for j in st["jobs"]:
         if j["kind"] == "lock" and (j.get("params") or {}).get("reworkOf") == jd.name and j["status"] in ("queued", "running", "done"):
             raise ValueError("剩下的已经在出了")
+    if rc.get("shootType") in ("still", "detail"):
+        parent = next((j for j in st["jobs"] if (j.get("params") or {}).get("jobDir") == str(jd)), None)
+        if not parent or parent.get("status") != "done":
+            raise ValueError("先等试出的第 1 张完成并检查，再出剩下的")
+        return r_lock_job("lock", {"item": rc["item"], "account": rc.get("account") or "", "shootType": rc["shootType"],
+                                  "shotKinds": rc["restShots"], "background": rc["background"], "note": rc.get("note") or "",
+                                  "sceneRef": rc.get("sceneRef") or "", "keepLabel": rc.get("keepLabel", False), "watermark": rc.get("watermark", False),
+                                  "autoWrite": rc.get("restAuto"), "reworkOf": jd.name, "restOf": True})
     return r_lock_job("lock", {"item": rc["item"], "account": rc.get("account") or "", "face": rc["face"], "model": rc.get("model") or "",
                                "refs": rc["rest"], "style": rc.get("style"), "note": rc.get("note") or "",
+                               "shootType": rc.get("shootType") or "reference",
+                               "keepLabel": rc.get("keepLabel", False), "watermark": rc.get("watermark", False),
                                "autoWrite": rc.get("restAuto"), "reworkOf": jd.name, "restOf": True})
 
 
@@ -2494,6 +2774,7 @@ def r_lock_multi(p):
             bound = cast_of(st, p["item"], aid) or {}
             job = r_lock_job("lock", {"item": p["item"], "account": aid, "face": bound.get("face") or pk.get("face"), "model": bound.get("model") or pk.get("model") or "",
                                       "refs": refs, "style": pk.get("style"), "note": str(p.get("note") or "")[:300],
+                                      "keepLabel": p.get("keepLabel", False), "watermark": p.get("watermark", False),
                                       "autoWrite": {"account": aid, "count": 1} if p.get("autoWrite", True) else None})["job"]
             queued.append({"account": aid, "job": job["id"], "estimateMin": job.get("estimateMin", 0)})
         except ValueError as e:
@@ -2609,6 +2890,13 @@ def r_image(body):
             dst = dst.with_name("%s_%s%s" % (dst.stem, uuid.uuid4().hex[:4], dst.suffix))
         dst.parent.mkdir(exist_ok=True)
         shutil.move(path, str(dst))
+        recipe = read_json_file(batch / "recipe.json")
+        if recipe.get("watermark"):
+            try:
+                apply_job_watermark({"params": dict(recipe, jobDir=str(batch))})
+            except (ValueError, OSError):
+                shutil.move(str(dst), path)
+                raise
         why = str(body.get("why") or "").strip()[:100] or "没过检查，人工挑的"
         mutate(lambda s: s.setdefault("imgApproved", {}).__setitem__(str(dst), {"from": path, "at": now_ms(), "why": why}))
         return {"ok": True, "path": str(dst)}
@@ -2665,7 +2953,7 @@ def r_review(body):
         src = {"title": r["title"], "body": r["body"], "tags": r["tags"], "comment": r.get("comment", "")}
         prompt = ("按我的意见改写这篇女装小红书笔记。意见：%s。\n原稿（JSON）：%s\n"
                   "%s\n标题 ≤18 字，正文 ≤888 字，不用 Markdown 符号。%s\n%s\n"
-                  "置顶评论 comment ≤150 字，意见没提到就保持原样（原稿没有就补一条尺码答疑）。"
+                  "置顶评论 comment ≤150 字，原稿没有就补一条真实的材质或设计细节。不写尺码、身高体重或选码建议。"
                   "改完存成 UTF-8 JSON 文件 %s，格式：{\"title\":\"\",\"titles\":[\"标题1\",\"标题2\",\"标题3\"],\"body\":\"\",\"tags\":[],\"comment\":\"\"}。不要发布。"
                   "最后一行只输出：{\"ok\":true}") % (body["note"], json.dumps(src, ensure_ascii=False),
                                                 "\n".join([("写法参考 %s。" % COPY_GUIDE) if COPY_GUIDE.is_file() else "",
@@ -2991,7 +3279,7 @@ def r_item_save(body):
     need(body, "name")
     if body.get("account"):
         require_account(body["account"])
-    item = {k: (body.get(k) or "") for k in ("id", "code", "name", "category", "colors", "sizes", "fabric", "texture", "pain", "price", "fit", "points", "status", "refDir", "account", "modelSize", "goods")}
+    item = {k: (body.get(k) or "") for k in ("id", "code", "name", "category", "colors", "sizes", "fabric", "texture", "pain", "price", "fit", "points", "status", "refDir", "account", "modelSize", "goods", "factsSource")}
     old = find_item(load_state(), item["id"]) if item["id"] else None
     item["lockName"] = (old or {}).get("lockName") or ("" if body.get("refDir") else safe_name(body.get("name")))
     item["specOk"] = bool((old or {}).get("specOk"))
@@ -3026,7 +3314,9 @@ def r_item_save(body):
     mutate(f)
     job = None
     # 材质和痛点都填好（或改过）就自动给这款出 5 条选题，进「文案 › 选题库」
-    if item["texture"].strip() and item["pain"].strip() and (not old or (old.get("texture"), old.get("pain")) != (item["texture"], item["pain"])):
+    fact_keys = ("fabric", "texture", "points", "pain")
+    if not body.get("deferTopics") and (item["fabric"].strip() or item["texture"].strip()) and (item["points"].strip() or item["pain"].strip()) and (
+            not old or any(old.get(k) != item[k] for k in fact_keys)):
         aid = body.get("topicAccount") or item["account"] or load_state()["accounts"][0]["id"]
         try:
             job = queue_topics(str(aid), 5, item["id"])

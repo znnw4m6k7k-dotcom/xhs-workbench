@@ -58,7 +58,7 @@ class PanelTests(unittest.TestCase):
 
     def test_02_existing_login_profile_is_reused(self):
         (self.m.STUDIO / "publisher" / "profiles" / "rb2").mkdir(parents=True)
-        st = json.loads(self.m.state_path().read_text())
+        st = json.loads(self.m.state_path().read_text("utf-8"))
         st.pop("accounts")
         self.m.state_path().write_text(json.dumps(st))
         self.assertEqual(self.m.xhs_profile("1"), "rb2")
@@ -79,7 +79,7 @@ class PanelTests(unittest.TestCase):
             self.m.r_review({"account": "2", "id": self.rid, "action": "ready"})
 
     def test_04b_upgrade_from_old_state_cancels_old_schedule(self):
-        st = json.loads(self.m.state_path().read_text())
+        st = json.loads(self.m.state_path().read_text("utf-8"))
         st.pop("dataVersion")
         st["ready"] = {str(self.rid): {"at": 1}}
         st["published"] = {str(self.rid): {"account": "1", "title": "旧的", "at": 1}}
@@ -344,7 +344,7 @@ class PanelTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.m.r_job({"kind": "lock", "params": {"item": it["id"], "face": "ai", "refs": self.m.list_refs()}})
         self.m.r_item_checks({"id": it["id"], "checks": [{"level": "必过", "text": "颜色是银灰"}, {"level": "尽量", "text": "缝线"}], "confirmed": True})
-        spec = (self.m.item_dir(it) / "spec.md").read_text()
+        spec = (self.m.item_dir(it) / "spec.md").read_text("utf-8")
         self.assertIn("1. 颜色是银灰", spec)
         self.assertIn("锁定参数", spec)
         self.assertEqual(len(self.m.parse_checks(spec)), 2)
@@ -359,7 +359,7 @@ class PanelTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.m.r_job({"kind": "lock", "params": {"item": it["id"], "face": "ai", "refs": ["/etc/passwd"]}})
         job = self.m.r_job({"kind": "lock", "params": {"item": it["id"], "face": "model", "model": "小禾", "refs": self.m.list_refs()}})["job"]
-        md = (Path(job["params"]["jobDir"]) / "job.md").read_text()
+        md = (Path(job["params"]["jobDir"]) / "job.md").read_text("utf-8")
         self.assertIn("模式: 只锁产品", md)
         self.assertIn("library/models/小禾", md)
         self.assertIn("library/references/ref1_走路.jpg", md)
@@ -623,7 +623,7 @@ class PanelTests(unittest.TestCase):
 
     def test_68_upgrade_from_v4_keeps_work_and_shortens_grace(self):
         self.ready()
-        st = json.loads(self.m.state_path().read_text())
+        st = json.loads(self.m.state_path().read_text("utf-8"))
         st["dataVersion"] = 4
         st["settings"]["late_grace_min"] = 120
         self.m.state_path().write_text(json.dumps(st))
@@ -635,7 +635,8 @@ class PanelTests(unittest.TestCase):
     def test_69_keep_awake_only_while_pending(self):
         self.m.DEMO = False
         proc = type("P", (), {"poll": lambda s: None, "terminate": lambda s: setattr(s, "dead", True)})()
-        with patch.object(self.m.sys, "platform", "darwin"), patch.object(self.m.shutil, "which", return_value="/usr/bin/caffeinate"), \
+        with patch.object(self.m, "IS_WIN", False), patch.object(self.m.sys, "platform", "darwin"), \
+                patch.object(self.m.shutil, "which", return_value="/usr/bin/caffeinate"), \
                 patch.object(self.m.subprocess, "Popen", return_value=proc) as P:
             self.m.keep_awake(True)
             self.m.keep_awake(True)
@@ -646,10 +647,54 @@ class PanelTests(unittest.TestCase):
         self.assertIsNone(self.m.AWAKE["proc"])
 
     # ---------------------------------------------------------------- Windows
+    def test_windows_codex_prefers_desktop_runtime_over_old_path(self):
+        desktop = Path(self.tmp.name) / "desktop-codex.exe"
+        desktop.touch()
+        with patch.object(self.m, "IS_WIN", True), \
+                patch.dict(os.environ, {"CODEX_CLI_PATH": str(desktop)}), \
+                patch.object(self.m.shutil, "which", return_value="old-codex.exe"):
+            self.assertEqual(self.m.codex_bin(), str(desktop))
+            self.m.mutate(lambda s: s["settings"].update(codex_path=str(self.image)))
+            self.assertEqual(self.m.codex_bin(), str(self.image))
+
+    def test_windows_codex_discovers_desktop_without_runtime_env(self):
+        home = Path(self.tmp.name) / "home"
+        desktop = home / "AppData/Local/OpenAI/Codex/bin/version/codex.exe"
+        desktop.parent.mkdir(parents=True)
+        desktop.touch()
+        with patch.object(self.m, "IS_WIN", True), patch.object(self.m, "HOME", home), \
+                patch.dict(os.environ, {"CODEX_CLI_PATH": ""}), \
+                patch.object(self.m.shutil, "which", return_value="old-codex.exe"):
+            self.assertEqual(self.m.codex_bin(), str(desktop))
+            desktop.unlink()
+            self.assertEqual(self.m.codex_bin(), "old-codex.exe")
+
+    def test_codex_failure_explains_model_and_transport_errors(self):
+        tail = 'ERROR: {"detail":"The model is not supported when using Codex with a ChatGPT account."}\nWARN MCP startup failed'
+        self.assertIn("CLI 与所选模型不兼容", self.m.codex_failure(tail, 1))
+        self.assertIn("连接超时", self.m.codex_failure("request timed out", 1))
+        self.assertEqual(self.m.codex_failure('ERROR: {"detail":"quota exceeded"}', 1), "Codex 失败：quota exceeded")
+        self.assertIn("退出码 2", self.m.codex_failure("WARN nonfatal", 2))
+
+    def test_windows_child_env_finds_python_after_install(self):
+        with patch.object(self.m, "IS_WIN", True), patch.dict(os.environ, {"PATH": "old-path"}):
+            env = self.m.child_env()
+        parts = env["PATH"].split(os.pathsep)
+        python_dir = Path(self.m.sys.executable).parent
+        self.assertEqual(parts[:2], [str(python_dir), str(python_dir / "Scripts")])
+        self.assertEqual(parts[-1], "old-path")
+        self.assertEqual(env["PYTHONUTF8"], "1")
+        proc = self.m.subprocess.run([str(python_dir / "python.exe"), "-c", "import shutil; print(shutil.which('python'))"],
+                                    env=env, capture_output=True, text=True, check=True) if os.name == "nt" else None
+        if proc:
+            self.assertEqual(Path(proc.stdout.strip()), python_dir / "python.exe")
+
     def test_69b_windows_codex_prompt_goes_through_stdin(self):
         """Windows 上 codex 是 codex.cmd：多行中文提示词不能放命令行，改成「-」从标准输入送，并提醒 python3 换 python。"""
-        cmd, stdin, prompt = self.m.codex_cmd("codex", ["exec"], "/w", "第一行\n第二行")
-        self.assertEqual(cmd[-1], "第一行\n第二行")
+        with patch.object(self.m, "IS_WIN", False):
+            cmd, stdin, prompt = self.m.codex_cmd("codex", ["exec"], "/w", "第一行\n第二行")
+        self.assertEqual(cmd, ["codex", "exec", "-C", "/w", "第一行\n第二行"])
+        self.assertEqual(stdin, self.m.subprocess.DEVNULL)
         self.assertIsNone(prompt)
         with patch.object(self.m, "IS_WIN", True):
             cmd, stdin, prompt = self.m.codex_cmd(r"C:\npm\codex.cmd", ["exec", "-s", "danger-full-access"], r"C:\w", "第一行\n第二行")
@@ -666,11 +711,13 @@ class PanelTests(unittest.TestCase):
             self.m.keep_awake(True)
             self.assertTrue(self.m.AWAKE["want"])
             self.assertEqual(len(started), 1)
+            T.assert_called_once_with(target=self.m.win_awake, daemon=True)
             self.m.keep_awake(False)
             self.assertFalse(self.m.AWAKE["want"])
             self.assertTrue(self.m.cover_font().lower().endswith((".ttc", ".ttf")))
             self.assertNotIn("PingFang", self.m.cover_font())
-        self.assertIn("PingFang", self.m.cover_font())
+        with patch.object(self.m, "IS_WIN", False):
+            self.assertIn("PingFang", self.m.cover_font())
         self.assertIn("os", self.m.api_state())
 
     def test_69d_windows_onedrive_documents(self):
@@ -678,7 +725,7 @@ class PanelTests(unittest.TestCase):
         alt = home / "OneDrive" / "Documents" / "xhs-lock-studio"
         alt.mkdir(parents=True)
         self.m.mutate(lambda s: s["settings"].update(lock_studio_path=str(home / "Documents" / "xhs-lock-studio")))
-        with patch.object(self.m, "HOME", home):
+        with patch.object(self.m, "HOME", home), patch.object(self.m, "IS_WIN", False):
             self.assertEqual(self.m.lock_root(), home / "Documents" / "xhs-lock-studio")
             with patch.object(self.m, "IS_WIN", True):
                 self.assertEqual(self.m.lock_root(), alt)
@@ -962,14 +1009,14 @@ class PanelTests(unittest.TestCase):
         m = next(x for x in self.m.list_models() if x["name"] == "阿雅")
         self.assertEqual(m["missing"], [])
         self.assertEqual(m["info"]["hair"], "黑色齐肩短发")
-        prof = (root / "library/models/阿雅/profile.md").read_text()
+        prof = (root / "library/models/阿雅/profile.md").read_text("utf-8")
         self.assertIn("黑色齐肩短发", prof)
         self.m.r_model({"action": "info", "name": "阿雅", "hair": "棕色长卷发", "height": "", "ratio": ""})
-        prof = (root / "library/models/阿雅/profile.md").read_text()
+        prof = (root / "library/models/阿雅/profile.md").read_text("utf-8")
         self.assertNotIn("黑色齐肩短发", prof)
         self.assertEqual(prof.count("工作台资料卡 -->"), 2)
         job = self.m.r_job({"kind": "lock", "params": {"item": it["id"], "account": "1", "face": "model", "model": "阿雅", "refs": self.m.list_refs()}})["job"]
-        md = (Path(job["params"]["jobDir"]) / "job.md").read_text()
+        md = (Path(job["params"]["jobDir"]) / "job.md").read_text("utf-8")
         self.assertIn("模特资料卡（阿雅）", md)
         self.assertIn("左侧脸：library/models/阿雅/face_left.png", md)
         self.assertIn("棕色长卷发", md)
@@ -1145,7 +1192,7 @@ class PanelTests(unittest.TestCase):
         self.run_one(spec)
         self.m.r_item_checks({"id": it["id"], "confirmed": True})
         job = self.m.r_job({"kind": "lock", "params": {"item": it["id"], "account": "1", "face": "ai", "refs": self.m.list_refs()}})["job"]
-        md = (Path(job["params"]["jobDir"]) / "job.md").read_text()
+        md = (Path(job["params"]["jobDir"]) / "job.md").read_text("utf-8")
         self.assertIn("套装：西装外套 + 半裙", md)
         self.assertIn("p2_front.png（半裙正面）", md)
         self.assertLess(md.index("半裙正面"), md.index("半裙细节"))
@@ -1172,7 +1219,7 @@ class PanelTests(unittest.TestCase):
         self.assertTrue(job["title"].startswith("试拍"))
         self.assertEqual(self.m.load_state()["lastPick"]["byAcc"]["1"]["refs"], refs)
         jd = Path(job["params"]["jobDir"])
-        rc = json.loads((jd / "recipe.json").read_text())
+        rc = json.loads((jd / "recipe.json").read_text("utf-8"))
         self.assertEqual(rc["rest"], refs[1:])
         self.run_one(job)
         trial_img = sorted(str(p) for p in (jd / "out").glob("*"))
@@ -1187,7 +1234,7 @@ class PanelTests(unittest.TestCase):
         self.assertEqual(rest["params"]["refs"], refs[1:])
         self.assertEqual(rest["params"]["reworkOf"], jd.name)
         self.assertEqual(rest["params"]["autoWrite"]["account"], "1")
-        self.assertIn("扣子全扣", (Path(rest["params"]["jobDir"]) / "job.md").read_text())
+        self.assertIn("扣子全扣", (Path(rest["params"]["jobDir"]) / "job.md").read_text("utf-8"))
         with self.assertRaises(ValueError):
             self.m.r_lock_rest({"batch": jd.name})
         self.run_one(rest)
@@ -1287,7 +1334,7 @@ class PanelTests(unittest.TestCase):
         root, it = self.shoot_ready()
         refs = self.m.list_refs()
         job = self.m.r_job({"kind": "lock", "params": {"item": it["id"], "account": "1", "face": "hide", "style": "street", "refs": refs}})["job"]
-        md = (Path(job["params"]["jobDir"]) / "job.md").read_text()
+        md = (Path(job["params"]["jobDir"]) / "job.md").read_text("utf-8")
         self.assertIn("不露脸（街拍，必过）", md)
         self.assertIn("鼻尖", md)
         self.assertIn("不露脸」是必过项", job["prompt"])
@@ -1337,6 +1384,140 @@ class PanelTests(unittest.TestCase):
             self.m.check_batch_images([vers[0]])
         with self.assertRaises(ValueError):
             self.m.r_image({"action": "approve", "path": good[0]})
+
+    def test_product_shots_without_reference_or_tag_keep_cast(self):
+        root, it = self.shoot_ready()
+        self.m.r_item_cast({"action": "set", "item": it["id"], "account": "1", "face": "model", "model": "小禾"})
+        before = self.m.cast_of(self.m.load_state(), it["id"], "1")
+        with patch.object(self.m, "list_refs", return_value=[]):
+            job = self.m.r_job({"kind": "lock", "params": {"item": it["id"], "account": "1", "shootType": "still", "count": 4, "background": "linen", "trial": True}})["job"]
+        jd = Path(job["params"]["jobDir"])
+        recipe = self.m.read_json_file(jd / "recipe.json")
+        self.assertEqual(recipe["shots"], ["挂拍正面"])
+        self.assertEqual(recipe["restShots"], ["平铺正面", "挂拍正面", "平铺正面"])
+        self.assertIn("模式: 产品套图", (jd / "job.md").read_text("utf-8"))
+        self.assertIn("米白亚麻布", (jd / "job.md").read_text("utf-8"))
+        self.assertEqual(self.m.cast_of(self.m.load_state(), it["id"], "1"), before)
+        with self.assertRaisesRegex(ValueError, "先等"):
+            self.m.r_lock_rest({"batch": jd.name})
+        self.run_one(job)
+        rest = self.m.r_lock_rest({"batch": jd.name})["job"]
+        self.assertEqual(rest["params"]["shootType"], "still")
+        self.assertEqual(len(rest["params"]["refs"]), 3)
+        self.run_one(rest)
+        self.assertEqual(len(self.m.lock_jobs_for(it)), 2)
+        with self.assertRaises(ValueError):
+            self.m.r_lock_rest({"batch": jd.name})
+
+    def test_detail_shots_and_missing_back_are_validated(self):
+        root, it = self.shoot_ready()
+        for bad in ({"shootType": "still", "layout": "back"}, {"shootType": "detail", "background": "unknown"}, {"shootType": "detail", "shotKinds": ["多色合拍"]}):
+            with self.assertRaises(ValueError):
+                self.m.r_job({"kind": "lock", "params": dict(bad, item=it["id"])})
+        job = self.m.r_job({"kind": "lock", "params": {"item": it["id"], "shootType": "detail", "count": 2}})["job"]
+        recipe = self.m.read_json_file(Path(job["params"]["jobDir"]) / "recipe.json")
+        self.assertEqual(recipe["shots"], ["领口特写", "面料特写"])
+        self.assertIn("build_prompt.py product", job["prompt"])
+
+    def test_no_tag_keeps_manual_facts_and_unknowns(self):
+        root, it = self.lock_setup()
+        prompt = self.m.spec_prompt(it)
+        self.assertIn("不需要吊牌", prompt)
+        self.assertIn("不能从外观推断", prompt)
+        values = dict(it, fabric="羊毛 30% 锦纶 70%", factsSource="供应商规格单，实物核实", sizes="")
+        saved = self.m.r_item_save(values)["item"]
+        (self.m.item_dir(it) / "info.json").write_text(json.dumps({"fabric": "", "sizes": "", "price": ""}), "utf-8")
+        self.m.apply_info(saved)
+        saved = self.m.find_item(self.m.load_state(), it["id"])
+        self.assertEqual(saved["fabric"], values["fabric"])
+        self.assertEqual(saved["sizes"], "")
+        self.assertIn(values["factsSource"], self.m.item_facts(saved))
+        self.assertIn("文案不得推测", self.m.item_facts(saved))
+
+    def test_material_and_features_without_size_can_write_and_make_topics(self):
+        saved = self.m.r_item_save({"name": "圈圈纱毛衣", "fabric": "圈圈纱针织", "points": "圆领，罗纹收边"})
+        it = saved["item"]
+        self.assertIsNotNone(saved["topicJob"])
+        self.assertEqual(it["sizes"], "")
+        prompt = self.m.write_prompt({"account": "1", "item": it["id"], "count": 1, "images": [], "outFile": "test.json"}, self.m.load_state())
+        self.assertIn("圈圈纱针织", prompt)
+        self.assertIn("圆领，罗纹收边", prompt)
+        self.assertIn("不写尺码、身高体重或选码建议", prompt)
+        self.assertNotIn("再写一次模特身高体重", prompt)
+
+    def test_intake_material_features_reach_spec_and_image_job(self):
+        root, _ = self.lock_setup()
+        new = self.m.r_item_new({"name": "新针织", "photos": {"front": self.b64(self.image.read_bytes() * 3)}, "fabric": "羊毛 30% 锦纶 70%", "points": "罗纹圆领", "pain": "不喜欢厚重"})
+        self.assertIn("羊毛 30% 锦纶 70%", new["job"]["prompt"])
+        self.assertIn("罗纹圆领", new["job"]["prompt"])
+        self.assertIn("不读取 tag*", new["job"]["prompt"])
+        self.run_one(new["job"])
+        self.m.r_item_checks({"id": new["item"]["id"], "confirmed": True})
+        job = self.m.r_job({"kind": "lock", "params": {"item": new["item"]["id"], "shootType": "still", "count": 1}})["job"]
+        md = (Path(job["params"]["jobDir"]) / "job.md").read_text("utf-8")
+        self.assertIn("羊毛 30% 锦纶 70%", md)
+        self.assertIn("罗纹圆领", md)
+
+    def test_static_reference_and_branding_survive_trial_continuation(self):
+        root, it = self.shoot_ready()
+        scene = self.m.list_refs()[0]
+        self.m.r_item_photo({"id": it["id"], "slot": "label", "data": self.b64(self.image.read_bytes() * 3)})
+        self.assertTrue(self.m.find_item(self.m.load_state(), it["id"])["specOk"])
+        with self.assertRaises(ValueError):
+            self.m.r_job({"kind": "lock", "params": {"item": it["id"], "shootType": "still", "sceneRef": str(self.image)}})
+        job = self.m.r_job({"kind": "lock", "params": {"item": it["id"], "shootType": "still", "sceneRef": scene, "keepLabel": True, "trial": True, "count": 2}})["job"]
+        jd = Path(job["params"]["jobDir"])
+        md = (jd / "job.md").read_text("utf-8")
+        self.assertIn("场景背景: library/references/", md)
+        self.assertIn("带主标: 是", md)
+        self.assertIn("/label.png", md)
+        self.assertNotIn("背景以此为准：白色", md)
+        self.run_one(job)
+        rest = self.m.r_lock_rest({"batch": jd.name})["job"]
+        self.assertEqual(rest["params"]["sceneRef"], scene)
+        self.assertTrue(rest["params"]["keepLabel"])
+
+    def test_watermark_preserves_original_and_is_idempotent(self):
+        from PIL import Image
+        root, it = self.shoot_ready()
+        with self.assertRaisesRegex(ValueError, "Logo"):
+            self.m.r_job({"kind": "lock", "params": {"item": it["id"], "account": "1", "shootType": "still", "watermark": True}})
+        logo = Path(self.tmp.name) / "logo.png"
+        Image.new("RGBA", (200, 100), (255, 0, 0, 128)).save(logo)
+        self.m.mutate(lambda s: s["accounts"][0].update(logo=str(logo)))
+        job = self.m.r_job({"kind": "lock", "params": {"item": it["id"], "account": "1", "shootType": "still", "watermark": True, "count": 1}})["job"]
+        self.assertNotEqual(job["params"]["watermarkLogo"], str(logo))
+        jd = Path(job["params"]["jobDir"])
+        out = jd / "out/test.png"
+        Image.new("RGB", (320, 400), (240, 240, 240)).save(out)
+        original = out.read_bytes()
+        self.m.apply_job_watermark(job)
+        stamped = out.read_bytes()
+        self.assertNotEqual(stamped, original)
+        self.assertEqual((jd / "raw/test.png").read_bytes(), original)
+        self.m.apply_job_watermark(job)
+        self.assertEqual(out.read_bytes(), stamped)
+        with Image.open(out) as im:
+            self.assertEqual(im.size, (320, 400))
+            self.assertEqual(im.getpixel((0, 0))[:3], (240, 240, 240))
+            self.assertNotEqual(im.getpixel((270, 370))[:3], (240, 240, 240))
+        prompt = self.m.write_prompt({"account": "1", "item": it["id"], "count": 1, "cover": "logo", "images": [str(out)], "outFile": "x.json"}, self.m.load_state())
+        self.assertIn("禁止重复叠加水印", prompt)
+
+    def test_image_library_separates_materials_ai_and_failed_grades(self):
+        root, it = self.shoot_ready()
+        job = self.m.r_job({"kind": "lock", "params": {"item": it["id"], "shootType": "still", "count": 3}})["job"]
+        self.run_one(job)
+        jd = Path(job["params"]["jobDir"])
+        (jd / "report.md").write_text("演示_01.png：评级 A，对\n演示_02.png：评级 B，细节待看\n演示_03.png：评级 C，领口不对", "utf-8")
+        bad = jd / "rejected/失败_v1.png"
+        bad.write_bytes(self.image.read_bytes())
+        view = next(x for x in self.m.api_state()["items"] if x["id"] == it["id"])
+        entries = view["imageLibrary"]
+        self.assertTrue(any(x["source"] == "original" and x["path"] in view["originalImages"] for x in entries))
+        self.assertEqual({x["grade"] for x in entries if x["source"] == "ai"}, {"A", "B", "C"})
+        self.assertTrue(all(not x["selectable"] for x in entries if x["grade"] == "C"))
+        self.assertEqual(len({x["path"] for x in entries}), len(entries))
 
 class GuideTests(unittest.TestCase):
     """向导：每个按钮都要有一句说明，按钮说明模式和帮助搜索才不会漏。"""
