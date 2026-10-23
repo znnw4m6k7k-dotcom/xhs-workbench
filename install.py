@@ -5,6 +5,8 @@
   Windows： powershell -ExecutionPolicy Bypass -File install.ps1   （等于 py -3 install.py）
 """
 import datetime
+import filecmp
+import json
 import os
 import shutil
 import subprocess
@@ -64,6 +66,69 @@ def copy_all():
     shutil.copy2(SRC / "使用说明.md", X / "使用说明.md")
 
 
+# 锁图工作台：规则和工具每次更新；示例和模板只在没有时放；模特、产品照片、参考图、jobs 永远不碰
+LOCK_CODE = ["AGENTS.md", "README.md", "canvas.html", ".gitignore", ".agents", "tools"]
+LOCK_DIRS = ["library/models", "library/originals", "library/references", "library/backgrounds", "library/products", "jobs"]
+
+
+def lock_target():
+    """锁图工作台放哪：工作台设置里填过就用那里；否则「文稿 / 文档」（Windows 开了 OneDrive 时可能在 OneDrive 下面）。"""
+    home = Path.home()
+    try:
+        st = json.loads((home / ".xhs-studio" / "state.json").read_text("utf-8"))
+        custom = (st.get("settings") or {}).get("lock_studio_path")
+        if custom and custom != "~/Documents/xhs-lock-studio":
+            return Path(custom).expanduser()
+    except (OSError, ValueError):
+        pass
+    docs = [home / "Documents"]
+    if IS_WIN:
+        docs += [home / "OneDrive" / "Documents", home / "OneDrive" / "文档"]
+    for d in docs:
+        if (d / "xhs-lock-studio").exists():
+            return d / "xhs-lock-studio"
+    for d in docs:
+        if d.is_dir():
+            return d / "xhs-lock-studio"
+    return docs[0] / "xhs-lock-studio"
+
+
+def install_lock_studio(b):
+    src = SRC / "lock-studio"
+    if not src.is_dir():
+        return None
+    dst = lock_target()
+    changed, bdir = [], None
+    for name in LOCK_CODE:
+        sp = src / name
+        files = [sp] if sp.is_file() else [f for f in sp.rglob("*") if f.is_file() and "__pycache__" not in f.parts]
+        for f in files:
+            rel = f.relative_to(src)
+            t = dst / rel
+            if t.is_file() and filecmp.cmp(f, t, shallow=False):
+                continue
+            if t.is_file():
+                if not bdir:
+                    # 跟工作台的备份放一起；工作台第一次装、但锁图文件夹早就有了，就备份在它自己下面
+                    bdir = b / "xhs-lock-studio" if b else dst / ("backup-%s-before-update" % datetime.datetime.now().strftime("%Y%m%d-%H%M"))
+                    print("锁图工作台旧文件备份在：%s" % bdir)
+                bk = bdir / rel
+                bk.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(t, bk)
+            t.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(f, t)
+            changed.append(str(rel))
+    for f in (src / "library").rglob("*"):
+        t = dst / f.relative_to(src)
+        if f.is_file() and not t.exists():
+            t.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(f, t)
+    for d in LOCK_DIRS:
+        (dst / d).mkdir(parents=True, exist_ok=True)
+    print("锁图工作台：%s（更新了 %d 个规则/工具文件；模特、产品照片、参考图没动）" % (dst, len(changed)))
+    return dst
+
+
 def run_tests():
     r = subprocess.run([sys.executable, "-m", "unittest", "test_server", "-q"], cwd=str(X / "panel"), env=ENV)
     if r.returncode == 0:
@@ -106,6 +171,7 @@ def main():
         sys.exit("Python 版本太旧（%s），需要 3.9 或更新" % sys.version.split()[0])
     b = backup()
     copy_all()
+    lock = install_lock_studio(b)
     run_tests()
     check_playwright()
     if restart() != 0:
@@ -122,6 +188,8 @@ def main():
   以后打开工作台：%s""" % (X / "使用说明.md", machine,
                        "\n  Windows 建议：设置 › 系统 › 电源，把「接通电源后睡眠」改成「从不」，合盖改成「不采取任何操作」。" if IS_WIN else "",
                        start))
+    if lock and not any((lock / "library" / "models").glob("*/face_*")):
+        print("  出图前：找管理员要模特照片、产品照片和参考图，放进 %s 的 library/models、library/originals、library/references" % lock)
     if b:
         print("回退：把 %s 里的文件拷回原位置，再运行 stop 和 start" % b)
     return 0

@@ -1,0 +1,638 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>锁图画布</title>
+<style>
+:root{--bg:#f6f4f1;--panel:#fff;--ink:#1d1b19;--muted:#77706a;--line:#e5e0da;--accent:#d6336c;--ok:#2f8f5b;--warn:#c27c0e;--sel:#fde7ef}
+@media (prefers-color-scheme:dark){:root{--bg:#161514;--panel:#211f1d;--ink:#eeeae6;--muted:#a39b94;--line:#35312e;--accent:#f0628f;--ok:#58c08a;--warn:#e0a640;--sel:#3a2029}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,"PingFang SC","Helvetica Neue",sans-serif}
+header{display:flex;gap:12px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:5;flex-wrap:wrap}
+header h1{font-size:16px;margin:0 8px 0 0}
+button{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:8px;padding:6px 12px;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button:disabled{opacity:.45;cursor:not-allowed}
+.tabs button.on{border-color:var(--accent);color:var(--accent)}
+#status{color:var(--muted);margin-left:auto;font-size:13px}
+main{display:grid;grid-template-columns:minmax(260px,1fr) minmax(320px,420px) minmax(280px,1fr);gap:16px;padding:16px}
+@media (max-width:1000px){main{grid-template-columns:1fr}}
+section.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+h2{font-size:14px;margin:0 0 10px}
+h3{font-size:13px;margin:14px 0 6px;color:var(--muted);font-weight:600}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:8px}
+.item{border:2px solid transparent;border-radius:8px;overflow:hidden;cursor:pointer;background:var(--bg);text-align:center;font-size:12px;position:relative}
+.item img{width:100%;aspect-ratio:3/4;object-fit:cover;display:block}
+.item span{display:block;padding:2px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item.on{border-color:var(--accent);background:var(--sel)}
+.item .no{position:absolute;top:4px;left:4px;background:var(--accent);color:#fff;border-radius:10px;padding:0 6px;font-size:11px;display:none}
+.item.on .no{display:block}
+.stage{position:relative;aspect-ratio:3/4;width:100%;border-radius:10px;overflow:hidden;background:var(--bg) center/cover no-repeat;border:1px dashed var(--line)}
+.stage .hint{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted)}
+.stage .chips{position:absolute;left:8px;bottom:8px;display:flex;gap:6px}
+.stage .chips img{width:64px;aspect-ratio:3/4;object-fit:cover;border-radius:6px;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.3)}
+.pairs{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.pairs img{width:100%;aspect-ratio:3/4;object-fit:cover;border-radius:8px;display:block}
+label.pose{display:flex;gap:6px;align-items:flex-start;margin:4px 0}
+select,input[type=text],textarea{font:inherit;width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
+textarea{min-height:70px}
+pre{white-space:pre-wrap;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;font-size:12px;max-height:260px;overflow:auto;margin:0}
+.warn{color:var(--warn);font-size:13px}
+.ok{color:var(--ok);font-size:13px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.view{display:none}
+.view.on{display:grid}
+#compare.on{display:block;padding:16px}
+.cmp{display:grid;grid-template-columns:minmax(200px,320px) 1fr;gap:16px}
+@media (max-width:800px){.cmp{grid-template-columns:1fr}}
+.cmp img{width:100%;border-radius:8px;display:block;cursor:zoom-in}
+.outs{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+.outs.pairs2{grid-template-columns:repeat(auto-fill,minmax(360px,1fr))}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+#zoom{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;place-items:center;z-index:10;cursor:zoom-out}
+#zoom img{max-width:95vw;max-height:95vh}
+.empty{color:var(--muted);font-size:13px}
+.note{color:var(--muted);font-size:12px;margin:6px 0 0}
+</style>
+</head>
+<body>
+<header>
+  <h1>锁图画布</h1>
+  <button class="primary" id="open">打开工作台文件夹</button>
+  <span class="tabs"><button data-view="viewB" class="on">参考图换人</button> <button data-view="viewP">产品套图</button> <button data-view="viewA">按背景换姿势</button> <button data-view="compare">成品对比</button></span>
+  <span id="status">请用 Chrome 或 Edge 打开这个页面，然后选择 xhs-lock-studio 文件夹</span>
+</header>
+
+<!-- 模式 B：参考图换人 -->
+<main id="viewB" class="view on">
+  <section class="card">
+    <h2>① 选衣服（library/originals 里的一套产品或原图）</h2><div class="grid" id="originals"><div class="empty">还没打开文件夹</div></div>
+    <h3>② 选素材图（可多选，每张出一张成品）</h3>
+    <div class="row" style="margin:0 0 8px"><button id="refAll">全选</button><button id="refNone">清空</button></div>
+    <div class="grid" id="references"></div>
+  </section>
+
+  <section class="card">
+    <h2>预览：原图 → 素材图的动作和场景</h2>
+    <div class="pairs" id="previewB"><div class="empty">选好原图和素材图后在这里预览</div></div>
+    <div id="checksB" style="margin-top:10px"></div>
+  </section>
+
+  <section class="card">
+    <h2>③ 出图选项</h2>
+    <h3>锁定范围</h3>
+    <select id="lockB"><option value="产品+模特">锁产品 + 换成我们的模特（推荐：动作、场景、身材跟素材图，衣服换成产品，脸和发型换成模特）</option><option value="人和衣服">人和衣服都按原图（原图目录里要有模特照片，老流程）</option><option value="产品">只锁产品，不换模特（人还是素材图里那位）</option></select>
+    <div id="modelPick"><h3>模特（library/models 里的人）</h3><select id="modelSel"></select></div>
+    <div id="faceBox" style="display:none">
+      <h3>素材图里那个人的脸</h3>
+      <select id="faceB"><option value="保留">保留原样（只能内部看效果，不要发布）</option><option value="AI脸">换成一张不对应真人的 AI 脸</option><option value="裁掉">裁到嘴巴以下或用手机挡住，不露脸</option></select>
+      <p class="note">只锁产品时，图里的人默认还是素材图里那位博主。拿去发布、卖货或推广有肖像权风险，发布前选「换成 AI 脸」或「不露脸」。</p>
+    </div>
+    <div id="propBox"><h3>身材比例按</h3>
+    <select id="propB"><option value="原图">原图里的模特（默认）</option><option value="素材图">素材图里的人</option></select>
+    <h3>表情</h3>
+    <select id="exprB"><option value="素材图">跟素材图的情绪走，自然放松（默认）</option><option value="原图">和原图一样</option></select></div>
+    <h3>补充要求（可选）</h3>
+    <textarea id="extraB" placeholder="例如：保留素材图里的包；画面整体再亮一点"></textarea>
+    <p class="note">推荐流程：素材图里的人、动作、场景、身材都保留，只把衣服换成你选的产品，再把脸和发型换成选中的模特（贴她本人照片再融合，不会变网红脸）。产品文件夹要有 front.jpg、关键设计特写 detail_2_*.jpg、平铺面料近拍 detail_1.jpg 和按模板写的 spec.md；模特文件夹要有正脸、半侧、全侧三张大头照和 face_closeup.jpg。</p>
+    <div class="row">
+      <button class="primary" id="makeB">生成任务单</button>
+      <button id="copyB" disabled>复制给 Codex 的指令</button>
+    </div>
+    <h3>给 Codex 的指令</h3>
+    <pre id="cmdB">生成任务单后会显示在这里</pre>
+    <h3>锁定参数（来自原图目录的 spec.md）</h3>
+    <pre id="specB">选择原图后显示</pre>
+  </section>
+</main>
+
+<!-- 产品套图：不用模特 -->
+<main id="viewP" class="view">
+  <section class="card">
+    <h2>① 选衣服（同款多色就按顺序多选几个颜色）</h2><div class="grid" id="pOrig"><div class="empty">还没打开文件夹</div></div>
+    <h3>② 场景背景（可选，不选就用内置的居家场景）</h3><div class="grid" id="pBg"></div>
+    <p class="note">每个颜色一个文件夹（比如「K01针织衫_粉」「K01针织衫_灰」），各放 front.jpg、back.jpg、detail_*.jpg 和 spec.md。至少一个颜色要有 spec.md；别的颜色没写时会借用它的描述，颜色只按照片。</p>
+  </section>
+
+  <section class="card">
+    <h2>预览：选中的颜色</h2>
+    <div class="pairs" id="previewP"><div class="empty">选好衣服后在这里预览</div></div>
+    <div id="checksP" style="margin-top:10px"></div>
+  </section>
+
+  <section class="card">
+    <h2>③ 出哪些图、每种几张</h2>
+    <div id="shots"></div>
+    <p class="note">每个颜色都按上面的张数出；同一种图的第 1、2、3 张换不同场景。不同颜色的第 1 张用同一个场景，整套图看起来是统一的。「多色合拍」要选 2 个以上颜色，奇数张是挂拍、偶数张是平铺。</p>
+    <h3>比例</h3>
+    <select id="ratioP"><option value="3:4">3:4 竖图（1080×1440，小红书默认）</option><option value="1:1">1:1 方图（1080×1080）</option></select>
+    <h3>补充要求（可选）</h3>
+    <textarea id="extraP" placeholder="例如：整体偏暖色调；不要放道具"></textarea>
+    <div class="row">
+      <button class="primary" id="makeP">生成任务单</button>
+      <button id="copyP" disabled>复制给 Codex 的指令</button>
+    </div>
+    <h3>给 Codex 的指令</h3>
+    <pre id="cmdP">生成任务单后会显示在这里</pre>
+  </section>
+</main>
+
+<!-- 模式 A：按背景换姿势 -->
+<main id="viewA" class="view">
+  <section class="card">
+    <h2>① 选模特</h2><div class="grid" id="models"><div class="empty">还没打开文件夹</div></div>
+    <h3>② 选产品</h3><div class="grid" id="products"></div>
+    <h3>③ 选背景</h3><div class="grid" id="backgrounds"></div>
+  </section>
+
+  <section class="card">
+    <h2>画布预览（3:4）</h2>
+    <div class="stage" id="stage"><div class="hint">选好背景后在这里预览</div><div class="chips" id="chips"></div></div>
+    <div id="checks" style="margin-top:10px"></div>
+  </section>
+
+  <section class="card">
+    <h2>④ 姿势</h2>
+    <select id="scene">
+      <option value="street">街道 / 墙面</option><option value="cafe">咖啡店 / 室内</option>
+      <option value="outdoor">户外草地 / 海边</option><option value="stairs">楼梯 / 台阶</option>
+      <option value="studio">纯色 / 影棚</option>
+    </select>
+    <div id="poses" style="margin-top:8px"></div>
+    <h3>自定义姿势（一行一个）</h3>
+    <textarea id="custom" placeholder="例如：倚在栏杆上，看向镜头左侧"></textarea>
+    <h3>补充要求（可选）</h3>
+    <input type="text" id="extra" placeholder="例如：傍晚暖光，手里拿一杯咖啡">
+    <div class="row">
+      <button class="primary" id="makeJob">生成任务单</button>
+      <button id="copy" disabled>复制给 Codex 的指令</button>
+    </div>
+    <h3>给 Codex 的指令</h3>
+    <pre id="cmd">生成任务单后会显示在这里</pre>
+    <h3>锁定参数（来自 spec.md）</h3>
+    <pre id="spec">选择产品后显示</pre>
+  </section>
+</main>
+
+<div id="compare" class="view">
+  <section class="card">
+    <div class="row" style="margin:0 0 12px"><span>任务：</span><select id="jobSel" style="max-width:420px"></select><button id="reload">刷新</button></div>
+    <div class="cmp">
+      <div><h2 id="refsTitle">原图</h2><div id="refs" style="display:grid;gap:8px"></div></div>
+      <div><h2 id="outsTitle">成品（点击放大，和左边逐项对照）</h2><div class="outs" id="outs"></div></div>
+    </div>
+  </section>
+</div>
+<div id="zoom"><img alt=""></div>
+
+<script>
+const POSES = {
+  street:["正面全身站立，单手插兜，看镜头","侧身 45° 回头看镜头，全身","走路抓拍，一脚在前，全身","背靠墙单腿微屈，七分身"],
+  cafe:["坐在椅子上侧身，下装完整露出，全身","站在窗边半侧身，七分身","手拿杯子，腰部以上半身","正面全身站立在店内过道"],
+  outdoor:["走路中回眸，全身","正面全身站立，双手自然下垂","背影望向远方，全身","半蹲侧身，衣服下摆完整可见"],
+  stairs:["坐在台阶上，双腿斜放，全身","上台阶时回头，全身","手扶栏杆站立，正面全身","站在台阶顶端俯视镜头，全身"],
+  studio:["正面全身站立","45° 侧身全身","背面全身","腰部以上半身特写"]
+};
+const IMG = /\.(jpe?g|png|webp)$/i;
+let root=null;
+let lib={models:[],products:[],backgrounds:[],originals:[],references:[]};
+let sel={model:null,product:null,bg:null,orig:null,refs:[]}, backs=new Set();
+let lastCmd="", lastCmdB="";
+const $=id=>document.getElementById(id);
+const urls=new Map();
+async function url(fh){if(!urls.has(fh))urls.set(fh,URL.createObjectURL(await fh.getFile()));return urls.get(fh)}
+const status=t=>$("status").textContent=t;
+const stem=n=>n.replace(/\.[^.]+$/,"");
+const safe=s=>s.replace(/[\s|\/\\:*?"<>]+/g,"_");
+
+async function sub(dir,name){try{return await dir.getDirectoryHandle(name)}catch{return null}}
+async function files(dir){const out={};if(!dir)return out;for await(const [n,h] of dir.entries()) if(h.kind==="file") out[n]=h;return out}
+async function readText(dir,name){try{return await (await (await dir.getFileHandle(name)).getFile()).text()}catch{return ""}}
+function pick(fs,s){const k=Object.keys(fs).find(n=>stem(n).toLowerCase()===s);return k?fs[k]:null}
+const lockSection=t=>(t.split(/##\s*锁定参数/)[1]||"").trim();
+async function writeFile(dir,name,text){const w=await (await dir.getFileHandle(name,{create:true})).createWritable();await w.write(text);await w.close()}
+function stamp(){const d=new Date(),p=n=>String(n).padStart(2,"0");return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`}
+
+// 标签切换
+document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll(".tabs button").forEach(x=>x.classList.toggle("on",x===b));
+  document.querySelectorAll(".view").forEach(v=>v.classList.toggle("on",v.id===b.dataset.view));
+  if(b.dataset.view==="compare") showJob();
+});
+
+$("open").onclick=async()=>{
+  if(!window.showDirectoryPicker){status("当前浏览器不支持读写本地文件夹，请换 Chrome 或 Edge");return}
+  try{root=await showDirectoryPicker({mode:"readwrite"})}catch{return}
+  if(!(await sub(root,"library"))){status("这个文件夹里没有 library，请选择 xhs-lock-studio 文件夹");root=null;return}
+  await loadLib();
+};
+
+async function loadLib(){
+  const L=await sub(root,"library");
+  lib={models:[],products:[],backgrounds:[],originals:[],references:[]};
+  sel={model:null,product:null,bg:null,orig:null,refs:[]};
+  for(const kind of ["models","products","originals"]){
+    const d=await sub(L,kind); if(!d) continue;
+    for await(const [n,h] of d.entries()) if(h.kind==="directory") lib[kind].push({name:n,dir:h,files:await files(h)});
+    lib[kind].sort((a,b)=>a.name.localeCompare(b.name));
+  }
+  for(const kind of ["backgrounds","references"]){
+    for(const [n,h] of Object.entries(await files(await sub(L,kind)))) if(IMG.test(n)) lib[kind].push({name:stem(n),file:n,fh:h});
+    lib[kind].sort((a,b)=>a.file.localeCompare(b.file));
+  }
+  await render("originals",o=>["original","anchor","face_closeup","face","front"].map(k=>pick(o.files,k)).find(Boolean),it=>{sel.orig=it;updateB()},"originals");
+  await renderRefs();
+  await render("models",m=>pick(m.files,"full_front")||pick(m.files,"face"),it=>{sel.model=it;update()},"models");
+  await render("products",p=>pick(p.files,"front"),it=>{sel.product=it;update()},"products");
+  await render("backgrounds",b=>b.fh,it=>{sel.bg=it;update()},"backgrounds");
+  await renderP();
+  $("modelSel").innerHTML=lib.models.map(m=>`<option${m.name==="新模特"?" selected":""}>${m.name}</option>`).join("")||`<option value="">library/models 里还没有模特</option>`;
+  status(`已加载：${lib.originals.length} 套原图，${lib.references.length} 张素材图；模特 ${lib.models.length}，产品 ${lib.products.length}，背景 ${lib.backgrounds.length}`);
+  await loadJobs();
+}
+
+async function render(boxId,thumb,onPick,folder){
+  const box=$(boxId); box.innerHTML="";
+  if(!lib[boxId].length){box.innerHTML=`<div class="empty">library/${folder} 里还是空的</div>`;return}
+  for(const it of lib[boxId]){
+    const el=document.createElement("div"); el.className="item";
+    const t=thumb(it); el.innerHTML=`${t?`<img src="${await url(t)}" alt="">`:`<div style="aspect-ratio:3/4;display:grid;place-items:center" class="empty">无图</div>`}<span>${it.name}</span>`;
+    el.onclick=()=>{[...box.children].forEach(c=>c.classList.toggle("on",c===el));onPick(it)};
+    box.appendChild(el);
+  }
+}
+
+// 模式 B：素材图多选，角标显示顺序
+async function renderRefs(){
+  const box=$("references"); box.innerHTML="";
+  if(!lib.references.length){box.innerHTML=`<div class="empty">library/references 里还是空的，把素材图放进去后点「打开工作台文件夹」重新加载</div>`;return}
+  for(const it of lib.references){
+    const el=document.createElement("div"); el.className="item"; el.dataset.file=it.file;
+    el.innerHTML=`<b class="no"></b><img src="${await url(it.fh)}" alt=""><span>${it.name}</span>`;
+    el.onclick=()=>{const i=sel.refs.indexOf(it); i<0?sel.refs.push(it):sel.refs.splice(i,1); syncRefs()};
+    box.appendChild(el);
+  }
+}
+function syncRefs(){
+  [...$("references").children].forEach(el=>{
+    const i=sel.refs.findIndex(r=>r.file===el.dataset.file);
+    el.classList.toggle("on",i>=0); const b=el.querySelector(".no"); if(b) b.textContent=i+1;
+  });
+  updateB();
+}
+$("refAll").onclick=()=>{sel.refs=[...lib.references];syncRefs()};
+$("refNone").onclick=()=>{sel.refs=[];syncRefs()};
+
+function imgSize(src){return new Promise(r=>{const i=new Image();i.onload=()=>r([i.naturalWidth,i.naturalHeight]);i.onerror=()=>r([0,0]);i.src=src})}
+
+function origKind(files){
+  const n=Object.keys(files);
+  if(n.some(f=>/^original\./i.test(f))) return "上身原图";
+  if(n.some(f=>/^anchor\./i.test(f))) return "定妆照";
+  if(n.some(f=>/^face/i.test(f))&&n.some(f=>/^front\./i.test(f))) return "脸部图+产品图";
+  return "";
+}
+
+async function updateB(){
+  const pv=$("previewB"), c=[];
+  pv.innerHTML="";
+  const o=sel.orig&&(pick(sel.orig.files,"original")||pick(sel.orig.files,"anchor"));
+  if(o) pv.insertAdjacentHTML("beforeend",`<div><img src="${await url(o)}" alt=""><div class="empty">原图</div></div>`);
+  for(const [i,r] of sel.refs.entries()) pv.insertAdjacentHTML("beforeend",`<div><img src="${await url(r.fh)}" alt=""><div class="empty">素材 ${i+1}：${r.name}</div><label class="empty"><input type="checkbox" class="backchk" data-file="${r.file}"${backs.has(r.file)?" checked":""}> 能看到衣服背面</label></div>`);
+  pv.querySelectorAll(".backchk").forEach(b=>b.onchange=()=>b.checked?backs.add(b.dataset.file):backs.delete(b.dataset.file));
+  if(!pv.children.length) pv.innerHTML=`<div class="empty">选好原图和素材图后在这里预览</div>`;
+  if(sel.orig&&$("lockB").value!=="人和衣服"){
+    const n=Object.keys(sel.orig.files).filter(x=>IMG.test(x));
+    const has=re=>n.some(x=>re.test(x));
+    c.push(has(/^front\./i)?`<div class="ok">✓ front.jpg 衣服正面</div>`:`<div class="warn">缺 front.jpg（衣服正面），必须有</div>`);
+    c.push(has(/^detail_2/i)?`<div class="ok">✓ 关键设计特写 detail_2_*</div>`:`<div class="warn">没有 detail_2_*.jpg：把这件衣服最有辨识度的地方（领口、扣子口袋、缝线）从 front.jpg 裁出来放大存一张，最容易跑偏的就是这里</div>`);
+    c.push(has(/^detail_(1|3)/i)?`<div class="ok">✓ 面料近拍${has(/^detail_1_flat/i)?"（用平铺的 detail_1_flat）":"。如果这张是把布拧成卷圈或堆成褶拍的，裁一块平整的区域另存成 detail_1_flat.jpg，会优先用它"}</div>`:`<div class="warn">没有面料近拍 detail_1.jpg：长毛、粗针、混色这类材质很容易被画错</div>`);
+    const sp=await readText(sel.orig.dir,"spec.md");
+    c.push(/检查要点/.test(sp)?`<div class="ok">✓ spec.md 有检查要点</div>`:`<div class="warn">spec.md 还没按「产品档案模板.md」写检查要点</div>`);
+    if($("lockB").value==="产品+模特"){
+      const m=lib.models.find(x=>x.name===$("modelSel").value), mf=m?Object.keys(m.files):[];
+      const views=["face_1","face_2","face_3","face_closeup"].filter(k=>mf.some(x=>x.startsWith(k)));
+      c.push(views.length===4?`<div class="ok">✓ 模特照片齐全（正脸、半侧、全侧、特写）</div>`:`<div class="warn">模特文件夹缺照片，现有：${views.join("、")||"无"}。缺哪个角度，那个角度的素材图脸最容易不像</div>`);
+    }
+    const lock=lockSection(sp); $("specB").textContent=lock||sp||"spec.md 是空的";
+  } else if(sel.orig){
+    const kind=origKind(sel.orig.files), names=Object.keys(sel.orig.files).filter(n=>IMG.test(n));
+    c.push({"上身原图":`<div class="ok">✓ 上身原图 original.jpg</div>`,"定妆照":`<div class="ok">✓ 定妆照 anchor.jpg（当上身原图用）</div>`,"脸部图+产品图":`<div class="warn">没有上身原图：出图前会先做一张定妆照，检查通过后存成 anchor.jpg 再换场景。衣长和宽松度靠 spec.md 写清楚</div>`}[kind]||`<div class="warn">原图目录里缺少 original.jpg，或者脸部图 + front.jpg</div>`);
+    const fc=names.some(n=>/^face_closeup/i.test(n)), sides=names.filter(n=>/^face_[23]/i.test(n)).length;
+    c.push(`<div class="${fc?"ok":"warn"}">${fc?"✓ face_closeup.jpg 正脸特写":"没有 face_closeup.jpg：出图时会先从原图或脸部图里裁一张，检查脸也靠它"}</div>`);
+    if(kind!=="上身原图"&&kind!=="定妆照"||names.some(n=>/^face/i.test(n))) c.push(`<div class="${sides?"ok":"warn"}">${sides?`✓ ${sides} 张半侧/全侧脸`:"没有半侧、全侧脸（face_2_*.jpg、face_3_*.jpg），素材图是侧脸时最容易变成别人"}</div>`);
+    const extra=Object.keys(sel.orig.files).filter(n=>IMG.test(n)&&/^original_/i.test(n)).length;
+    const d=Object.keys(sel.orig.files).filter(n=>IMG.test(n)&&/^detail/i.test(n)).length;
+    const back=names.some(n=>/^back\./i.test(n));
+    c.push(extra?`<div class="ok">✓ 另有 ${extra} 张其他角度原图</div>`:back?`<div class="ok">✓ back.jpg 产品背面</div>`:`<div class="warn">没有其他角度原图或 back.jpg：素材图是侧面或背面时，衣服背后的细节只能靠猜</div>`);
+    c.push(`<div class="${d?"ok":"warn"}">${d?`✓ ${d} 张细节图`:"没有 detail_*.jpg 细节图，印花和材质容易跑偏"}</div>`);
+    const lock=lockSection(await readText(sel.orig.dir,"spec.md"));
+    $("specB").textContent=lock||"spec.md 里没有「## 锁定参数」一节，请先填写";
+    if(!lock) c.push(`<div class="warn">spec.md 没写锁定参数</div>`);
+  }
+  for(const [i,r] of sel.refs.entries()){
+    const [w,h]=await imgSize(await url(r.fh));
+    if(w&&h&&w>=h) c.push(`<div class="warn">素材 ${i+1}「${r.name}」是横图，成品要裁成 3:4 竖图，两边会被裁掉</div>`);
+  }
+  $("checksB").innerHTML=c.join("");
+}
+
+$("makeB").onclick=async()=>{
+  if(!root){status("先打开工作台文件夹");return}
+  if(!sel.orig){status("先选一套原图");return}
+  if(!sel.refs.length){status("至少选一张素材图");return}
+  const o=sel.orig, base=`library/originals/${o.name}`;
+  const kind=origKind(o.files), needAnchor=kind==="脸部图+产品图";
+  // 内置 image_gen 一次最多附 5 张图：素材图 + 下面最多 4 张
+  const names=Object.keys(o.files).filter(n=>IMG.test(n)).sort();
+  const find=re=>names.find(n=>re.test(n));
+  const body=find(/^original\./i)||find(/^anchor\./i)||(needAnchor?"anchor.jpg":null);
+  const closeup=find(/^face_closeup/i)||find(/^face\./i);
+  const front=find(/^front\./i), detail=find(/^detail_1_flat/i)||find(/^detail/i);
+  const extra=find(/^back\./i)||find(/^body_1/i)||closeup;
+  // 第 1 步出底图：素材图 + 人和衣服；脸在第 2、3 步换成本人
+  const locks=[body&&`${body}（人和整套衣服）`,front&&`${front}（衣服正面）`,detail&&`${detail}（面料和细节）`,extra&&`${extra}（${/^back/i.test(extra)?"衣服背面；素材图看不到背面时换成 body_1_* 或 face_closeup":/^body/i.test(extra)?"全身比例":"认脸"}）`].filter(Boolean).map(n=>`${base}/${n}`);
+  const views=names.filter(n=>/^face_[123]/i.test(n));
+  const anchorRefs=needAnchor?[find(/^face_1/i)||find(/^face\./i),find(/^face_closeup/i),find(/^front\./i),detail||find(/^back\./i)].filter(Boolean).slice(0,5):[];
+  const jobName=`${stamp()}_${safe(o.name)}_参考图换人`;
+  const lockV=$("lockB").value, withModel=lockV==="产品+模特", modelName=$("modelSel").value;
+  if(withModel&&!modelName){status("library/models 里还没有模特，先按说明建一个");return}
+  if(lockV!=="人和衣服"){
+    const pj=jobName.replace(/_参考图换人$/,withModel?"_换模特":"_只锁产品");
+    const pd=await (await root.getDirectoryHandle("jobs",{create:true})).getDirectoryHandle(pj,{create:true});
+    await pd.getDirectoryHandle("out",{create:true}); await pd.getDirectoryHandle("rejected",{create:true});
+    const key=find(/^detail_2/i), d1=find(/^detail_1_flat/i)||find(/^detail_1/i)||detail, d3=find(/^detail_3/i);
+    const fab=key?d1:d3, back=find(/^back\./i), body=find(/^original\./i)||find(/^anchor\./i);
+    const prod=[front&&`${front}（衣服正面）`,(key||d1)&&`${key||d1}（${key?"关键设计特写，这一块的形状、宽度、走向必须一样":"面料和细节"}）`,fab&&`${fab}（${/_flat/i.test(fab)?"平整面料近拍":"面料近拍"}：绒毛、针眼、混色、光泽都按这张）`,(back||body)&&`${back||body}（${back?`衣服背面，只在逐张任务表「附背面」是「是」的那几张附；其余${body?`换成 ${body}（只看衣服上身的样子，不要用这个人的脸和身材）`:"不附"}`:"只看衣服上身的样子，不要用这个人的脸和身材"}）`].filter(Boolean).map(n=>`${base}/${n}`);
+    const faceRule=withModel?`换成我们的模特 library/models/${modelName}（按 SKILL.md 的 5 步做：换衣服和发型、查衣服、贴真脸、融合、查脸）`:{"保留":"保留素材图人物原来的脸（只用于内部看效果，不能发布）","AI脸":"出完后把脸换成一张不对应任何真人的普通面孔（按 SKILL.md「其他脸部处理」的「换 AI 脸」做）","裁掉":"构图往下移或让手机挡住脸，成品里看不到眼睛和鼻子（按 SKILL.md「其他脸部处理」的「不露脸」做）"}[$("faceB").value];
+    const tag=withModel?"模特":"产品";
+    const pmd=`# 出图任务 ${pj}
+
+模式: 只锁产品
+原图目录: ${base}
+脸部处理: ${faceRule}
+输出: 3:4，1080x1440，共 ${sel.refs.length} 张
+
+## 参考图（每张都附这几张，按这个顺序；生图一次最多 5 张）
+图1. 这一行对应的素材图（编辑底图：人、动作、比例、场景、配饰都保持原样）
+${prod.slice(0,4).map((f,i)=>`图${i+2}. ${f}`).join("\n")}
+
+## 逐张任务
+| 序号 | 素材图 | 输出文件名 | 附背面 |
+|---|---|---|---|
+${sel.refs.map((r,i)=>`| ${i+1} | library/references/${r.file} | ${safe(o.name)}_${tag}_${String(i+1).padStart(2,"0")}_${safe(r.name)}.png | ${back&&backs.has(r.file)?"是":"否"} |`).join("\n")}
+
+## 补充要求
+${$("extraB").value.trim()||"无"}
+`;
+    await writeFile(pd,"job.md",pmd);
+    lastCmdB=`读 AGENTS.md，使用 xhs-lock 技能，执行 jobs/${pj}/job.md：${withModel?"每张把素材图当编辑底图，动作、比例、场景和配饰都不动，衣服换成原图目录里的产品；脸和发型换成任务单「脸部处理」写的模特，按 SKILL.md 的 5 步做（衣服先过检查，再贴真脸、融合）。换衣服和融合的提示词都用 tools/build_prompt.py 拼，原样使用。":"每张把素材图当编辑底图，人、脸、动作、比例、场景和配饰都不动，只把衣服换成原图目录里的产品，附图按任务单的顺序；脸按任务单的「脸部处理」来。"}每张都用 tools/crop_compare.py 把衣服关键部位放大和产品图并排检查，评 A/B/C，没过的只返工那一项，成品按表里的文件名存到 jobs/${pj}/out，最后运行 tools/contact_sheet.py 并写 report.md。`;
+    $("cmdB").textContent=lastCmdB; $("copyB").disabled=false;
+    status(`已创建 jobs/${pj}/job.md`); await loadJobs(); return;
+  }
+  const jd=await (await root.getDirectoryHandle("jobs",{create:true})).getDirectoryHandle(jobName,{create:true});
+  await jd.getDirectoryHandle("out",{create:true}); await jd.getDirectoryHandle("rejected",{create:true}); await jd.getDirectoryHandle("base",{create:true});
+  const rows=sel.refs.map((r,i)=>`| ${i+1} | library/references/${r.file} | ${safe(o.name)}_${String(i+1).padStart(2,"0")}_${safe(r.name)}.png |`);
+  const md=`# 出图任务 ${jobName}
+
+模式: 参考图换人
+原图目录: ${base}
+素材类型: ${kind||"不完整"}${needAnchor?"（先做定妆照）":""}
+身材比例: 按${$("propB").value}
+表情: ${$("exprB").value==="素材图"?"跟素材图的情绪走，自然放松，不要僵硬摆拍":"和原图一样"}
+输出: 3:4，1080x1440，共 ${sel.refs.length} 张
+${needAnchor?`
+## 第 0 步：定妆照
+原图目录里没有模特穿着这件衣服的照片。先按 modes/模式B_参考图换人.md 的「第 0 步」做一张定妆照：图1 是模特本人的正面照，当编辑底图，脸不动，只换上这件衣服并扩成半身照；用 tools/crop_compare.py 检查脸和衣服，通过后存成 ${base}/anchor.jpg，再开始下面的逐张任务。
+定妆照附这 ${anchorRefs.length} 张（生图一次最多 5 张）：
+${anchorRefs.map((n,i)=>`图${i+1}. ${base}/${n}`).join("\n")}
+`:""}
+## 每张图分三步（按 modes/模式B_参考图换人.md 的 B3）
+### 第 1 步：出底图（动作、场景、衣服、比例）
+附图按这个顺序，生图一次最多 5 张：
+图1. 这一行对应的素材图
+${locks.map((f,i)=>`图${i+2}. ${f}`).join("\n")}
+通过检查后存到 jobs/${jobName}/base/<输出文件名>。
+
+### 第 2 步：贴真脸
+python3 tools/face_paste.py jobs/${jobName}/base/<输出文件名> ${base}
+本人照片：${views.length?views.join("、"):"没有 face_1/2/3_*，只能用 "+(closeup||body||"脸部图")+" 里的脸，侧脸素材图容易不像，建议补拍正脸、半侧、全侧三张大头照"}。提示没找到人脸（背影、脸被挡住）时跳过第 2、3 步。
+
+### 第 3 步：融合（只附这 2 张，不要附底图或素材图）
+图1. jobs/${jobName}/base/<输出文件名去掉 .png>_贴脸.png
+图2. ${base}/${closeup||"face_closeup.jpg"}
+融合完用 python3 tools/face_fix.py paste 贴回底图，检查通过后存到 out/。
+
+## 逐张任务
+| 序号 | 素材图 | 输出文件名 |
+|---|---|---|
+${rows.join("\n")}
+
+## 补充要求
+${$("extraB").value.trim()||"无"}
+`;
+  await writeFile(jd,"job.md",md);
+  lastCmdB=`读 AGENTS.md，使用 xhs-lock 技能的「模式 B：参考图换人」，执行 jobs/${jobName}/job.md：按「逐张任务」表一张一张做，每张都按任务单的三步走：第 1 步附素材图和原图出底图，查衣服、动作和比例；第 2 步运行 tools/face_paste.py 贴上本人的脸；第 3 步只附贴脸图和 face_closeup 融合，再用 tools/face_fix.py paste 贴回。${needAnchor?"原图目录里没有上身照，先按 modes/模式B_参考图换人.md 第 0 步做定妆照 anchor.jpg，通过后再开始。":""}每张都用 tools/crop_compare.py 把脸和衣服放大并排检查，评 A/B/C，C 级按返工重做，成品按表里的文件名存到 jobs/${jobName}/out，最后运行 tools/contact_sheet.py 并写 report.md。`;
+  $("cmdB").textContent=lastCmdB; $("copyB").disabled=false;
+  status(`已创建 jobs/${jobName}/job.md`); await loadJobs();
+};
+$("modelSel").onchange=()=>updateB();
+$("lockB").onchange=()=>{const v=$("lockB").value;if(root)updateB();$("faceBox").style.display=v==="产品"?"":"none";$("modelPick").style.display=v==="产品+模特"?"":"none";$("propBox").style.display=v==="人和衣服"?"":"none"};
+$("lockB").onchange();
+$("copyB").onclick=async()=>{await navigator.clipboard.writeText(lastCmdB);status("已复制，粘贴到 Codex 即可")};
+
+// 模式 A：按背景换姿势
+function renderPoses(){
+  $("poses").innerHTML=POSES[$("scene").value].map((p,i)=>`<label class="pose"><input type="checkbox" value="${p}" ${i<3?"checked":""}> ${p}</label>`).join("");
+}
+$("scene").onchange=renderPoses; renderPoses();
+
+async function update(){
+  const st=$("stage"), chips=$("chips"); chips.innerHTML="";
+  if(sel.bg){st.style.backgroundImage=`url(${await url(sel.bg.fh)})`;st.querySelector(".hint").style.display="none"}
+  const m=sel.model&&(pick(sel.model.files,"face")||pick(sel.model.files,"full_front"));
+  const p=sel.product&&pick(sel.product.files,"front");
+  for(const f of [m,p]) if(f) chips.insertAdjacentHTML("beforeend",`<img src="${await url(f)}" alt="">`);
+  const c=[];
+  if(sel.model){
+    for(const s of ["face","full_front"]) c.push(pick(sel.model.files,s)?`<div class="ok">✓ 模特 ${s}</div>`:`<div class="warn">缺少模特 ${s}.jpg，脸和身材会锁不住</div>`);
+    if(!sel.model.files["profile.md"]) c.push(`<div class="warn">缺少模特 profile.md</div>`);
+  }
+  if(sel.product){
+    c.push(pick(sel.product.files,"front")?`<div class="ok">✓ 产品 front</div>`:`<div class="warn">缺少产品 front.jpg</div>`);
+    const d=Object.keys(sel.product.files).filter(n=>/^detail/i.test(n)).length;
+    c.push(d?`<div class="ok">✓ ${d} 张细节图</div>`:`<div class="warn">没有 detail_*.jpg 细节图，纹路和材质容易跑偏</div>`);
+    const lock=lockSection(await readText(sel.product.dir,"spec.md"));
+    $("spec").textContent=lock||"spec.md 里没有「## 锁定参数」一节，请先填写";
+    if(!lock) c.push(`<div class="warn">spec.md 没写锁定参数</div>`);
+  }
+  $("checks").innerHTML=c.join("");
+}
+
+$("makeJob").onclick=async()=>{
+  if(!root){status("先打开工作台文件夹");return}
+  if(!sel.model||!sel.product||!sel.bg){status("模特、产品、背景都要选");return}
+  const poses=[...$("poses").querySelectorAll("input:checked")].map(i=>i.value).concat($("custom").value.split("\n").map(s=>s.trim()).filter(Boolean));
+  if(!poses.length){status("至少选一个姿势");return}
+  const jobName=`${stamp()}_${safe(sel.product.name)}_${safe(sel.bg.name)}`;
+  const jd=await (await root.getDirectoryHandle("jobs",{create:true})).getDirectoryHandle(jobName,{create:true});
+  await jd.getDirectoryHandle("out",{create:true}); await jd.getDirectoryHandle("rejected",{create:true});
+  const mf=Object.keys(sel.model.files).filter(n=>IMG.test(n)).map(n=>`library/models/${sel.model.name}/${n}`);
+  const pf=Object.keys(sel.product.files).filter(n=>IMG.test(n)).map(n=>`library/products/${sel.product.name}/${n}`);
+  const md=`# 出图任务 ${jobName}
+
+模式: 按背景换姿势
+模特目录: library/models/${sel.model.name}
+产品目录: library/products/${sel.product.name}
+背景图: library/backgrounds/${sel.bg.file}
+场景类型: ${$("scene").selectedOptions[0].text}
+输出: 3:4，1080x1440，共 ${poses.length} 张
+
+## 参考图（每次生图都要附上，按这个顺序）
+${[...mf.sort((a,b)=>/face/.test(b)-/face/.test(a)),...pf.sort((a,b)=>/front/.test(b)-/front/.test(a)),`library/backgrounds/${sel.bg.file}`].map((f,i)=>`${i+1}. ${f}`).join("\n")}
+
+## 姿势清单（输出文件名：${safe(sel.product.name)}_${safe(sel.bg.name)}_序号_姿势.png）
+${poses.map((p,i)=>`${i+1}. ${p}`).join("\n")}
+
+## 补充要求
+${$("extra").value.trim()||"无"}
+`;
+  await writeFile(jd,"job.md",md);
+  lastCmd=`读 AGENTS.md，使用 xhs-lock 技能的「模式 A：按背景换姿势」，执行 jobs/${jobName}/job.md：按姿势清单逐张生成，每张都附上任务单里列出的全部参考图，逐项检查，不合格的重新生成，成品存到 jobs/${jobName}/out，最后运行 tools/contact_sheet.py 并写 report.md。`;
+  $("cmd").textContent=lastCmd; $("copy").disabled=false;
+  status(`已创建 jobs/${jobName}/job.md`); await loadJobs();
+};
+$("copy").onclick=async()=>{await navigator.clipboard.writeText(lastCmd);status("已复制，粘贴到 Codex 即可")};
+
+// 产品套图：选一个或多个颜色，每种图设定张数
+const SHOTS=[["挂拍正面",2],["挂拍背面",1],["平铺正面",1],["平铺背面",0],["领口特写",1],["面料特写",1],["多色合拍",1]];
+let selP={colors:[],bg:null}, lastCmdP="";
+$("shots").innerHTML=SHOTS.map(([n,c],i)=>`<label class="pose" style="align-items:center"><input type="number" id="shot${i}" min="0" max="8" value="${c}" style="width:64px"> ${n}</label>`).join("");
+async function renderP(){
+  const box=$("pOrig"); box.innerHTML="";
+  const list=lib.originals.filter(o=>pick(o.files,"front"));
+  if(!list.length){box.innerHTML=`<div class="empty">library/originals 里还没有带 front.jpg 的衣服</div>`;return}
+  for(const it of list){
+    const el=document.createElement("div"); el.className="item";
+    el.innerHTML=`<b class="no"></b><img src="${await url(pick(it.files,"front"))}" alt=""><span>${it.name}</span>`;
+    el.onclick=()=>{const i=selP.colors.indexOf(it); i<0?selP.colors.push(it):selP.colors.splice(i,1);
+      [...box.children].forEach((c,k)=>{const j=selP.colors.indexOf(list[k]);c.classList.toggle("on",j>=0);c.querySelector(".no").textContent=j+1});updateP()};
+    box.appendChild(el);
+  }
+  const bb=$("pBg"); bb.innerHTML="";
+  if(!lib.backgrounds.length){bb.innerHTML=`<div class="empty">library/backgrounds 里还没有背景图，不选也可以</div>`;return}
+  for(const it of lib.backgrounds){
+    const el=document.createElement("div"); el.className="item";
+    el.innerHTML=`<img src="${await url(it.fh)}" alt=""><span>${it.name}</span>`;
+    el.onclick=()=>{selP.bg=selP.bg===it?null:it;[...bb.children].forEach(c=>c.classList.toggle("on",c===el&&selP.bg===it));updateP()};
+    bb.appendChild(el);
+  }
+}
+async function updateP(){
+  const pv=$("previewP"), c=[]; pv.innerHTML="";
+  for(const [i,o] of selP.colors.entries()) pv.insertAdjacentHTML("beforeend",`<div><img src="${await url(pick(o.files,"front"))}" alt=""><div class="empty">颜色 ${i+1}：${o.name}</div></div>`);
+  if(!pv.children.length) pv.innerHTML=`<div class="empty">选好衣服后在这里预览</div>`;
+  for(const o of selP.colors){
+    const n=Object.keys(o.files), has=re=>n.some(x=>re.test(x));
+    if(!has(/^back\./i)) c.push(`<div class="warn">${o.name} 没有 back.jpg，背面的挂拍和平铺会跳过</div>`);
+    if(!has(/^detail_2/i)) c.push(`<div class="warn">${o.name} 没有 detail_2_*.jpg，领口特写只能从 front.jpg 放大，清晰度会差</div>`);
+    if(!has(/^detail_(1|3)/i)) c.push(`<div class="warn">${o.name} 没有面料近拍 detail_1.jpg，会跳过面料特写</div>`);
+    if(!o.files["spec.md"]) c.push(`<div class="warn">${o.name} 没有 spec.md，会借用另一个颜色的 spec.md，颜色只按照片</div>`);
+  }
+  if(selP.colors.length&&!c.length) c.push(`<div class="ok">✓ 照片齐全</div>`);
+  if(selP.colors.length===1&&+$("shot6").value>0) c.push(`<div class="warn">只选了 1 个颜色，多色合拍会跳过</div>`);
+  if(selP.colors.length>5) c.push(`<div class="warn">多色合拍一张最多放 5 个颜色（选了背景时 4 个），多出来的不会放进合拍</div>`);
+  $("checksP").innerHTML=c.join("");
+}
+$("ratioP").onchange=updateP; SHOTS.forEach((_,i)=>$("shot"+i).oninput=updateP);
+$("makeP").onclick=async()=>{
+  if(!root){status("先打开工作台文件夹");return}
+  if(!selP.colors.length){status("至少选一件衣服");return}
+  const pad=n=>String(n).padStart(2,"0"), rows=[], skipped=[];
+  for(const o of selP.colors){
+    const n=Object.keys(o.files), has=re=>n.some(x=>re.test(x));
+    SHOTS.forEach(([t],i)=>{
+      if(t==="多色合拍") return;
+      const cnt=Math.max(0,Math.min(8,+$("shot"+i).value||0));
+      if(!cnt) return;
+      if(t.endsWith("背面")&&!has(/^back\./i)){skipped.push(`${o.name} ${t}`);return}
+      if(t==="面料特写"&&!has(/^detail_(1|3)/i)){skipped.push(`${o.name} ${t}`);return}
+      for(let v=1;v<=cnt;v++) rows.push([t,`library/originals/${o.name}`,v,`${safe(o.name)}_${t}_${pad(v)}.png`]);
+    });
+  }
+  const multi=Math.max(0,Math.min(8,+$("shot6").value||0));
+  if(multi&&selP.colors.length>1) for(let v=1;v<=multi;v++) rows.push(["多色合拍","全部颜色",v,`${safe(selP.colors[0].name)}等${selP.colors.length}色_多色合拍_${pad(v)}.png`]);
+  if(!rows.length){status("没有要出的图，检查一下张数");return}
+  if(!selP.colors.some(o=>o.files["spec.md"])){status("选中的颜色都没有 spec.md，先按 library/originals/产品档案模板.md 写一份");return}
+  const ratio=$("ratioP").value, c0=selP.colors[0];
+  const jobName=`${stamp()}_${safe(c0.name)}_产品套图`;
+  const jd=await (await root.getDirectoryHandle("jobs",{create:true})).getDirectoryHandle(jobName,{create:true});
+  await jd.getDirectoryHandle("out",{create:true}); await jd.getDirectoryHandle("rejected",{create:true});
+  const md=`# 出图任务 ${jobName}
+
+模式: 产品套图
+产品目录: library/originals/${c0.name}
+颜色: ${selP.colors.map(o=>`library/originals/${o.name}`).join("、")}
+场景背景: ${selP.bg?`library/backgrounds/${selP.bg.file}`:"无"}
+输出: ${ratio}，${ratio==="1:1"?"1080x1080":"1080x1440"}，共 ${rows.length} 张
+
+## 逐张任务
+| 序号 | 类型 | 原图目录 | 第几种场景 | 输出文件名 |
+|---|---|---|---|---|
+${rows.map((r,i)=>`| ${i+1} | ${r.join(" | ")} |`).join("\n")}
+
+## 补充要求
+${$("extraP").value.trim()||"无"}
+`;
+  await writeFile(jd,"job.md",md);
+  lastCmdP=`读 AGENTS.md，使用 xhs-lock 技能，执行 jobs/${jobName}/job.md（模式: 产品套图，按 .agents/skills/xhs-lock/modes/产品套图.md 做，不用模特）：按「逐张任务」表一张一张做，每张用 tools/build_prompt.py product 拼提示词并原样使用，生成后和这个颜色的产品原图放大并排检查，评 A/B/C，没过的加 --fix 从原图重做，成品按表里的文件名存到 jobs/${jobName}/out，最后运行 tools/contact_sheet.py 并写 report.md。`;
+  $("cmdP").textContent=lastCmdP; $("copyP").disabled=false;
+  status(`已创建 jobs/${jobName}/job.md，共 ${rows.length} 张${skipped.length?`；缺照片跳过：${skipped.join("、")}`:""}`); await loadJobs();
+};
+$("copyP").onclick=async()=>{await navigator.clipboard.writeText(lastCmdP);status("已复制，粘贴到 Codex 即可")};
+
+// 成品对比
+async function loadJobs(){
+  const jobs=await sub(root,"jobs"); const names=[];
+  if(jobs) for await(const [n,h] of jobs.entries()) if(h.kind==="directory") names.push(n);
+  names.sort().reverse(); $("jobSel").innerHTML=names.map(n=>`<option>${n}</option>`).join("")||"<option value=''>还没有任务</option>";
+}
+$("jobSel").onchange=showJob; $("reload").onclick=async()=>{await loadJobs();showJob()};
+async function fileAt(path){
+  let d=root; const parts=path.split("/");
+  try{for(const p of parts.slice(0,-1)) d=await d.getDirectoryHandle(p); return await d.getFileHandle(parts.at(-1))}catch{return null}
+}
+const fig=async(h,label)=>`<div><img src="${await url(h)}" alt=""><div class="empty">${label}</div></div>`;
+async function showJob(){
+  $("refs").innerHTML=$("outs").innerHTML="";
+  if(!root||!$("jobSel").value) return;
+  const jd=await (await sub(root,"jobs")).getDirectoryHandle($("jobSel").value);
+  const md=await readText(jd,"job.md");
+  const outs=await files(await sub(jd,"out"));
+  const swap=md.includes("参考图换人");
+  $("outs").classList.toggle("pairs2",swap);
+  $("refsTitle").textContent=swap?"原图":"产品图";
+  $("outsTitle").textContent=swap?"每组左边是素材图，右边是成品：动作和场景对照素材图，人和衣服对照左栏原图（点击放大）":"成品（点击放大，和左边逐项对照）";
+  const dirLine=(md.match(new RegExp(`${swap?"原图目录":"产品目录"}[:：]\\s*(.+?)\\s*$`,"m"))||[])[1];
+  if(dirLine){
+    let d=root; try{for(const p of dirLine.split("/")) d=await d.getDirectoryHandle(p)}catch{d=null}
+    if(d) for(const [n,h] of Object.entries(await files(d)).filter(([n])=>IMG.test(n)).sort(([a],[b])=>/^original/i.test(b)-/^original/i.test(a)||a.localeCompare(b))) $("refs").insertAdjacentHTML("beforeend",await fig(h,n));
+  }
+  if(swap){
+    const rows=[...md.matchAll(/^\|\s*(\d+)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|/gm)];
+    for(const [,no,ref,out] of rows){
+      const rh=await fileAt(ref), oh=outs[out];
+      $("outs").insertAdjacentHTML("beforeend",`<div class="pair">${rh?await fig(rh,`素材 ${no}`):`<div class="empty">素材图不见了</div>`}${oh?await fig(oh,out):`<div class="empty">还没生成：${out}</div>`}</div>`);
+    }
+  }else{
+    const list=Object.entries(outs).filter(([n])=>IMG.test(n)).sort();
+    if(!list.length) $("outs").innerHTML=`<div class="empty">out 文件夹里还没有成品</div>`;
+    for(const [n,h] of list) $("outs").insertAdjacentHTML("beforeend",await fig(h,n));
+  }
+}
+document.addEventListener("click",e=>{if(e.target.matches(".cmp img")){$("zoom").querySelector("img").src=e.target.src;$("zoom").style.display="grid"}});
+$("zoom").onclick=()=>$("zoom").style.display="none";
+</script>
+</body>
+</html>

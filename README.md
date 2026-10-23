@@ -1,6 +1,6 @@
 # the rumah小红书工作台
 
-给女装团队用的小红书图文工作台：产品图（对镜自拍 / 街拍）→ 选题和文案 → 到点由浏览器自动发布 → 历史记录。出图依赖 [xhs-lock-studio](https://github.com/znnw4m6k7k-dotcom/xhs-lock-studio)。
+给女装团队用的小红书图文工作台：产品图（对镜自拍 / 街拍）→ 选题和文案 → 到点由浏览器自动发布 → 历史记录。出图用锁图工作台 xhs-lock-studio，代码和规则在本仓库的 `lock-studio/`，安装时自动放到「文稿 / 文档」文件夹。
 
 **第一次用？看 [使用说明.md](使用说明.md)**：安装、第一次设置、1 款 × 1 号试跑、出问题怎么办。
 
@@ -24,7 +24,7 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\xhs-workbench\install
 没找到 Python 时它会给出安装命令（winget install -e --id Python.Python.3.12），装好后重开 Codex 再运行一次。
 ```
 
-新电脑也可以直接装。已经装过的电脑会先备份旧文件，店里自己的 fashion.json、start.sh、stop.sh 不会被覆盖。出图要另外装好 xhs-lock-studio。
+新电脑也可以直接装。已经装过的电脑会先备份旧文件，店里自己的 fashion.json、start.sh、stop.sh 不会被覆盖。锁图工作台会一起装到 `~/Documents/xhs-lock-studio`：只更新规则和工具，不动里面的模特、产品照片、参考图和 jobs。模特照片、产品照片、参考图不进仓库（`lock-studio/.gitignore` 拦住了所有图片），新电脑要找管理员拷一份放进 `library/`。
 
 ## 更新到最新版（把这段发给 Codex）
 
