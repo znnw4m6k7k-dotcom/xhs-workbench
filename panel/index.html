@@ -339,6 +339,63 @@ body.explain .app [data-do],body.explain .app [data-tab],body.explain #aiBtn,bod
 .flash{animation:flash 1.6s ease 2}
 @keyframes flash{0%,100%{box-shadow:none}50%{box-shadow:0 0 0 4px var(--info)}}
 @media (max-width:760px){.nextbar{flex-direction:column;align-items:flex-start}}
+/* Content workflow — selected visual direction, using live studio data. */
+:root {--paper:#fff;--card:#fff;--ink:#171b24;--ink2:#454e5e;--muted:#828b9b;--line:#e8ecf1;--soft:#f2f4f7;--soft2:#f8f9fb;--accent:#e91e40;--accent-soft:#fff0f3;--accent-line:#f9d8df;--shadow:none;--r:10px;--r2:12px}
+body{font-size:14px;line-height:1.65}
+.app{grid-template-columns:226px minmax(0,1fr)}
+.side{padding:30px 20px 22px;background:var(--soft2);gap:26px}
+.brand{padding:0 2px;gap:10px}.brand b{font-size:21px;letter-spacing:-.6px}.brand .mk{width:40px;height:40px;border-radius:12px;font-size:21px}.brand span{font-size:12px;margin-top:1px}
+.accsw{padding:12px 14px;background:var(--card);border-radius:11px}.accsw select{font-size:15px}.login{font-size:12px}
+nav.secs{gap:10px}nav.secs::before{display:none}
+.sec-b{grid-template-columns:24px minmax(0,1fr) auto;gap:12px;padding:13px 12px;color:var(--ink2);border-radius:10px}.sec-b b{font-size:15px;font-weight:500}.sec-b[aria-selected="true"]{background:var(--accent-soft);color:var(--accent)}.sec-b[aria-selected="true"] b{font-weight:600}
+.ui-icon{display:inline-block;width:21px;height:21px;flex:none;background:currentColor;mask:var(--icon) center/contain no-repeat;vertical-align:middle}
+.subs{margin:0 0 4px 39px}.subs button{font-size:12px}.side-foot{gap:14px}.ai{padding:12px;color:var(--accent);background:var(--accent-soft);border:0}
+.main{padding:30px 28px 55px}.pagehead{margin-bottom:22px;align-items:center}h1{font-size:28px;font-weight:650;letter-spacing:-.8px}.pdesc{font-size:14px}.crumb{font-size:12px}
+body[data-view="board"] .pagehead{margin-bottom:22px}body[data-view="board"] #crumb,body[data-view="board"] #guide,body[data-view="board"] #subm{display:none!important}
+body[data-view="board"] .headtools{display:none}
+.board-top-action{padding:12px 24px;font-size:15px;display:flex;gap:9px;align-items:center;border-radius:10px}
+.board-filters{display:grid;grid-template-columns:132px 132px 132px minmax(170px,1fr);gap:12px;margin-bottom:20px}
+.board-filters select,.board-search{height:44px;border:1px solid var(--line);border-radius:8px;background:var(--card)}.board-filters select{padding:8px 12px;font-size:13px}
+.board-search{display:flex;align-items:center;gap:10px;padding:0 13px;background:var(--soft2)}.board-search .ui-icon{width:18px;color:var(--muted)}.board-search input{border:0;background:transparent;padding:0;box-shadow:none;outline:none;font-size:13px}.board-search:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+.board-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;align-items:start}
+.board-column{min-width:0;background:var(--soft2);border-radius:12px;padding:13px 8px 9px;min-height:474px}
+.board-column-head{padding:0 8px 14px}.board-column-head h2{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:600}.board-column-head .stage-dot{width:15px;height:15px;border-radius:100%;background:var(--stage-color);flex:none}.board-column-head .count{font-size:13px;color:var(--muted);font-weight:400;margin-left:3px}.board-column-head p{font-size:12px;color:var(--muted);margin:7px 0 0}
+.board-cards{display:flex;flex-direction:column;gap:12px}.workflow-card{padding:12px;background:var(--card);border:1px solid var(--line);border-radius:10px;min-width:0;transition:border-color .15s,box-shadow .15s}.workflow-card:hover{border-color:#ccd3dc;box-shadow:0 3px 12px #15213a07}
+.card-product{display:flex;gap:12px;align-items:start}.card-photo{width:76px;height:122px;object-fit:cover;border-radius:6px;background:var(--soft);flex:none}.card-photo.contain{object-fit:contain}.card-meta{min-width:0}.card-meta h3{font-size:14px;font-weight:600;line-height:1.6;overflow-wrap:anywhere}.card-tags{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}.card-tags span{font-size:11px;background:var(--soft);color:var(--muted);padding:0 4px;border-radius:3px}
+.card-todos{list-style:none;padding:0;margin:13px 0 0;color:var(--muted);font-size:12px}.card-todos li{display:flex;gap:6px;align-items:center;margin-top:5px}.card-todos .ui-icon{width:13px;height:13px}.card-todos li:first-child{color:var(--ink2)}
+.card-footer{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-top:18px}.card-account{font-size:11px;color:var(--muted);line-height:1.65;min-width:0}.card-account span{display:block}.card-footer button{padding:7px 10px;font-size:12px;border:1px solid var(--accent-line);background:var(--accent-soft);color:var(--accent);border-radius:7px}.card-footer button.primary{background:var(--accent);color:white;border-color:var(--accent)}
+.card-hero{display:block;width:100%;height:230px;object-fit:cover;border-radius:6px;margin-bottom:10px;background:var(--soft)}.card-excerpt{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;color:var(--muted);font-size:12px;line-height:1.8;margin:11px 0}.card-thumbs{display:flex;gap:6px}.card-thumbs img,.card-thumbs span{width:38px;height:47px;border-radius:5px;object-fit:cover;background:var(--soft)}.card-thumbs span{display:flex;align-items:center;justify-content:center;color:var(--ink2);font-size:12px}
+.card-status{font-size:12px;margin:13px 0 0;line-height:1.7;color:var(--ink2)}.card-status.failed{color:var(--bad)}.card-status .ui-icon{width:15px;height:15px;margin-right:5px}.card-substatus{color:var(--muted);font-size:11px;margin-top:5px;overflow-wrap:anywhere}.card-activity{display:flex;align-items:center;gap:6px;margin-top:8px;color:var(--info);font-size:12px}.card-activity .dot{background:var(--info)}
+.column-empty{padding:56px 8px;text-align:center;color:var(--muted);font-size:12px;line-height:1.9}.column-empty .ui-icon{display:block;margin:0 auto 13px;width:25px;height:25px;opacity:.45}.column-empty strong{display:block;color:var(--ink2);font-size:13px;font-weight:500;margin-bottom:5px}
+.board-recent{margin-top:22px;padding:15px 17px;border:1px solid var(--line);border-radius:11px}.board-recent-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}.board-recent-head h2{font-size:15px}.board-recent-head button{font-size:12px;color:var(--muted)}.recent-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:15px}.recent-entry{border:0;border-left:1px solid var(--line);border-radius:0;background:none;padding:0 0 0 12px;white-space:normal;text-align:left;min-width:0}.recent-entry:first-child{border-left:0;padding-left:0}.recent-entry time{font-size:10px;color:var(--muted)}.recent-entry b{display:block;font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.recent-entry span{display:block;font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.board-note{font-size:11px;color:var(--muted);margin:14px 0 0}
+.board-back{margin-bottom:16px;font-size:12px;color:var(--muted)}
+@media(min-width:1500px){.main{padding:32px 34px 60px}.board-grid{gap:16px}.workflow-card{padding:14px}.card-photo{width:86px;height:139px}.board-column{min-height:565px}.card-hero{height:270px}}
+@media(max-width:1199px){.app{grid-template-columns:192px minmax(0,1fr)}.side{padding:25px 14px}.main{padding:24px 20px 50px}.brand b{font-size:18px}.board-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.board-column{min-height:275px}.board-filters{grid-template-columns:repeat(3,minmax(0,1fr))}.board-search{grid-column:1/-1}.recent-grid{grid-template-columns:repeat(2,minmax(0,1fr));row-gap:15px}.card-hero{height:240px}}
+@media(max-width:850px){.app{grid-template-columns:74px minmax(0,1fr)}.side{padding:20px 10px;align-items:stretch;gap:20px}.brand{justify-content:center}.brand>div:last-child,.accsw,.sec-b b,.sec-b .c,.subs,.ai>span,#btnSettings{display:none}.brand .mk{width:36px;height:36px}.sec-b{display:flex;justify-content:center;padding:14px 10px}.sec-b .ui-icon{width:23px;height:23px}.side-foot .ai{display:flex;justify-content:center;min-height:44px}.ai::after{content:'任务';font-size:11px}.side-foot:after{content:none}.main{padding:22px 16px 50px}h1{font-size:26px}.board-column-head h2{font-size:14px}.board-filters{gap:8px}.workflow-card{padding:10px}.card-product{gap:9px}.card-photo{width:66px;height:106px}.card-footer{gap:4px}.card-footer button{padding:7px 8px}.board-top-action{padding:10px 15px;font-size:13px}.card-hero{height:240px}.pagehead{gap:8px}.headtools{display:none}.two{grid-template-columns:1fr}.two>.left{position:static;max-height:none}.board-column-head p{font-size:11px}}
+@media(max-width:540px){.app{grid-template-columns:58px minmax(0,1fr)}.side{padding:18px 6px}.brand .mk{width:32px;height:32px;font-size:17px}.main{padding:18px 12px 40px}.board-grid{grid-template-columns:1fr}.board-column{min-height:180px}.board-filters{grid-template-columns:1fr 1fr}.board-filters select:first-child{grid-column:1/-1}.board-search{grid-column:1/-1}.recent-grid{grid-template-columns:1fr}.recent-entry{border:0;padding:0}.pagehead{align-items:flex-start}h1{font-size:23px}.pdesc{font-size:12px}.board-top-action{padding:8px 10px}.card-hero{height:300px}.card-photo{width:82px;height:125px}.card-meta h3{font-size:15px}.card-footer button{font-size:13px}.board-back{margin-bottom:10px}}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+.studio-tools{margin-top:12px;border-top:1px solid var(--line);padding-top:15px}.studio-tools summary{font-size:11px;color:var(--muted);cursor:pointer;padding:0 12px 8px}.studio-tools .sec-b{padding:9px 12px}.board-grid.is-filtered{grid-template-columns:minmax(230px,380px)}.board-back .ui-icon{width:14px;height:14px;margin-right:6px}@media(max-width:850px){.studio-tools summary{font-size:10px;padding:4px 0;text-align:center;list-style:none}#btnSettings{display:flex!important;justify-content:center;padding:12px 4px}#btnSettings span{display:none}.side-foot{gap:6px}}
+
+
+@media(max-width:850px){
+ .app{display:grid}.side{position:sticky;top:0;height:100vh;flex-direction:column;flex-wrap:nowrap;border-right:1px solid var(--line);border-bottom:0}.side-foot{margin-top:auto;flex-direction:column;width:100%}nav.secs{flex-direction:column;overflow:visible;width:100%;gap:10px}.sec-b{width:100%;border:0;flex:none}.pagehead{flex-direction:row;align-items:center}.brand{flex:none}.studio-tools .sec-b{padding:12px 4px}
+}
+
+/* Desktop proportions follow the selected 1487px reference. */
+@media(min-width:1200px){
+ .app{grid-template-columns:247px minmax(0,1fr)}.side{padding:30px 23px 22px;gap:26px}.brand b{font-size:23px}.brand span{font-size:13px}.sec-b b{font-size:17px}.sec-b{padding:14px 12px}.accsw select{font-size:16px}.login{font-size:13px}
+ body[data-view="board"] h1{font-size:36px}.pdesc{font-size:16px}.board-top-action{padding:14px 25px;font-size:16px}.board-filters{grid-template-columns:132px 132px 132px minmax(170px,1fr)}.board-filters select,.board-search{height:48px}.board-filters select,.board-search input{font-size:14px}
+ .board-column{min-height:650px}.board-column-head h2{font-size:18px}.board-column-head p{font-size:13px}.card-meta h3{font-size:16px}.card-tags span{font-size:12px}.card-excerpt{font-size:14px}.card-account{font-size:12px}.card-footer button{font-size:14px;padding:9px 12px}.card-hero{height:258px}.column-empty{font-size:13px;padding-top:65px}.column-empty strong{font-size:14px}.board-recent-head h2{font-size:17px}.recent-entry time{font-size:12px}.recent-entry b{font-size:13px}.recent-entry span{font-size:12px}.board-recent{padding:15px 17px 20px}
+}
+.board-column{align-self:stretch}.board-grid{align-items:stretch}
+body[data-view="board"] .brand span{display:block}.board-note{line-height:1.8}
+
+
+.recent-entry{display:flex;gap:10px;align-items:center}.recent-thumb{flex:none!important;width:48px;height:64px;border-radius:6px;overflow:hidden;background:var(--soft);display:flex!important;align-items:center;justify-content:center}.recent-thumb img{width:100%;height:100%;object-fit:cover}.recent-text{min-width:0}.recent-entry span.recent-text{overflow:visible}.recent-entry time{display:block;white-space:nowrap}.recent-entry b{margin:3px 0}.column-empty strong{line-height:1.7}
+@media(max-width:1199px){.board-column{min-height:0}.column-empty{padding:24px 8px 30px}.column-empty .ui-icon{margin-bottom:8px}}
+@media(max-width:540px){.side-foot .ai{padding:8px 0;font-size:10px}.ai::after{white-space:nowrap}.column-empty{padding:20px 5px 25px}.board-column-head{padding-bottom:8px}.board-top-action .ui-icon{width:16px;height:16px}.board-top-action{gap:5px}.board-recent{padding:13px}.board-grid.is-filtered{grid-template-columns:minmax(0,1fr)}}
+
 </style>
 </head>
 <body>
@@ -348,8 +405,8 @@ body.explain .app [data-do],body.explain .app [data-tab],body.explain #aiBtn,bod
     <div class="accsw"><select id="acc" aria-label="账号"></select><button type="button" class="login" id="online" data-go="login"></button></div>
     <nav class="secs" id="big" aria-label="四大板块"></nav>
     <div class="side-foot">
-      <button class="ai" id="aiBtn" type="button"></button>
-      <button class="ghost" id="btnSettings" type="button" style="text-align:left">设置</button>
+      <button aria-label="任务记录" title="查看任务记录" class="ai" id="aiBtn" type="button"></button>
+      <button aria-label="设置" title="设置" class="ghost" id="btnSettings" type="button" style="text-align:left">设置</button>
     </div>
   </aside>
   <section class="main">
@@ -374,12 +431,13 @@ body.explain .app [data-do],body.explain .app [data-tab],body.explain #aiBtn,bod
 (() => {
 'use strict';
 let D = null, sig = '';
-const UI = {tab: 'img', sub: {img: 'info', copy: 'review', pub: 'queue', hist: 'all'}, acc: '', item: '', review: '', pubSel: '', week: 0, when: '', whenAt: ''};
+const UI = {tab: 'img', sub: {board:'home', img: 'info', copy: 'review', pub: 'queue', hist: 'all'}, acc: '', item: '', review: '', pubSel: '', week: 0, when: '', whenAt: ''};
 // 出图时的选择；写文案时的选择（从「出好的图」或「选题库」带过来）
 const PICK = {refs: [], face: 'model', model: '', style: 'mirror', shootType: 'mirror', layout: 'mix', background: 'white', count: 4, keepLabel: false, watermark: false, sceneRef: '', autoWrite: true, split: 1, trial: true, init: ''};
 const LIBVIEW = {source:'all', grade:'all', organized:true};
 const W = {item: '', imgs: [], topic: null, split: 1, cover: '', trialItem: ''};
 try { const s = JSON.parse(localStorage.getItem('xhs-studio-ui5') || '{}'); Object.assign(UI, s, {sub: Object.assign(UI.sub, s.sub || {})}); } catch (e) {}
+try { if (!localStorage.getItem('xhs-workflow-board-v1')) { UI.tab='board'; localStorage.setItem('xhs-studio-ui5',JSON.stringify(UI)); localStorage.setItem('xhs-workflow-board-v1','1'); } } catch(e) { UI.tab='board'; }
 const save = () => { try { localStorage.setItem('xhs-studio-ui5', JSON.stringify({tab: UI.tab, sub: UI.sub, acc: UI.acc, item: UI.item})); } catch (e) {} };
 const $ = s => document.querySelector(s);
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -514,12 +572,13 @@ const DESC = {
   'hist.all': '发过什么、哪里出错、AI 做了什么，都按时间排在这里。',
   'hist.pub': '已经发出去的笔记。', 'hist.fail': '没发出去的和被驳回的，处理完就从这里消失。', 'hist.ai': '交给 AI 的每件事：出选题、写档案、出图、写文案、改稿。',
 };
-const TABS = [
+const TABS = [['board','工作看板','内容工作流'],
   ['img', '第 1 块', '产品图'], ['copy', '第 2 块', '文案'], ['pub', '第 3 块', '发布'], ['hist', '第 4 块', '历史记录']];
 function subsOf(tab) {
   const R = mine(D.reviews);
   const nTodo = R.filter(r => ['todo', 'rejected'].includes(draftState(r))).length, nReady = R.filter(r => draftState(r) === 'ready').length;
   return {
+    board: [['home','内容工作流']],
     img: [['info', '照片和资料'], ['shoot', '出图'], ['result', '出好的图'], ['lib', '模特和参考图库']],
     copy: [['topic', `选题库（${unusedTopics().length}）`], ['review', `审稿（${nTodo}）`]].concat(UI.sub.copy === 'write' ? [['write', '写稿']] : [], [['set', '文案设定']]),
     pub: [['queue', `待发布（${nReady}）`], ['cal', '排期日历'], ['login', '账号登录']],
@@ -529,6 +588,7 @@ function subsOf(tab) {
 function go(tab, sub) { UI.tab = tab; if (sub) UI.sub[tab] = sub; save(); render(); window.scrollTo(0, 0); }
 
 function render() {
+  document.body.dataset.view = UI.tab;
   const sel = $('#acc');
   sel.innerHTML = D.accounts.map(a => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('') || '<option value="">没有账号</option>';
   sel.value = UI.acc;
@@ -546,12 +606,19 @@ function render() {
   const subs = subsOf(UI.tab);
   if (!subs.some(s => s[0] === UI.sub[UI.tab])) UI.sub[UI.tab] = subs[0][0];
   const subBtns = subs.map(([k, l]) => { const m = l.match(/^(.*?)（(\d+)）$/); return `<button type="button" data-tab="${UI.tab}" data-sub="${k}" aria-selected="${UI.sub[UI.tab] === k}"><span>${esc(m ? m[1] : l)}</span>${m && m[2] !== '0' ? `<span class="num">${m[2]}</span>` : ''}</button>`; }).join('');
-  $('#big').innerHTML = TABS.map(([k, no, name], i) => `<button type="button" class="sec-b" data-tab="${k}" aria-selected="${UI.tab === k}"><span class="n">${i + 1}</span><b>${name}</b><span class="c ${counts[k][1] ? 'hot' : ''}">${esc(counts[k][0])}</span></button>${UI.tab === k ? `<div class="subs">${subBtns}</div>` : ''}`).join('');
+  $('#big').innerHTML = studioNav(subBtns);
   $('#subm').innerHTML = subBtns;
   const subName = (subs.find(s => s[0] === UI.sub[UI.tab]) || ['', ''])[1].replace(/（\d+）$/, '');
   $('#crumb').textContent = `第 ${TABS.findIndex(t => t[0] === UI.tab) + 1} 块 · ${TABS.find(t => t[0] === UI.tab)[2]}`;
   $('#ptitle').textContent = subName;
   $('#pdesc').textContent = DESC[UI.tab + '.' + UI.sub[UI.tab]] || '';
+  $('#btnSettings').innerHTML = uiIcon('settings') + '<span>设置</span>';
+  $('#crumb').textContent = UI.tab==='board' ? '' : '工作看板 / ' + subName;
+  const oldAction=$('.board-top-action'); if(oldAction)oldAction.remove();
+  if(UI.tab==='board'){
+    $('#ptitle').textContent='内容工作流';$('#pdesc').textContent='从一件衣服，到一篇笔记';
+    $('.pagehead').insertAdjacentHTML('beforeend',`<button class="primary board-top-action" type="button" data-do="addItem">${uiIcon('plus')}上新单品</button>`);
+  }
   const h = [];
   const bk = D.brake || {};
   if (bk.on) h.push(`<div class="notice bad row between" style="flex-wrap:nowrap;gap:12px"><span><b>所有号的发布已暂停</b>（${fmtDT(bk.at)}）：${bk.account ? `「${esc((D.accounts.find(a => String(a.id) === String(bk.account)) || {}).name || bk.account)}」` : ''}${esc(bk.reason)}。${{验证码: '到小红书 App 或浏览器里把验证过了，', 登录失效: '到「发布 › 账号和登录」重新扫码，', 发布结果不确定: '先到创作中心「笔记管理」看看刚才那篇发出去没有，'}[bk.reason] || '先处理好，'}再点右边恢复。暂停期间到点的稿不会发，排到以后的照常保留。</span><button type="button" class="primary" data-do="resumeBrake">恢复发布</button></div>`);
@@ -560,15 +627,116 @@ function render() {
   if (!D.publisherOk) h.push('<div class="notice bad"><b>找不到发布脚本</b>（xhs-autopilot/publisher/xhs_publish.py）。发布用不了。</div>');
   if (!D.codex) h.push('<div class="notice bad"><b>找不到 codex 命令行。</b>出图和写文案用不了，到“设置 › 高级”里填它的路径。</div>');
   $('#health').innerHTML = h.length ? `<div class="stack" style="margin-bottom:14px">${h.join('')}</div>` : '';
-  $('#guide').innerHTML = `<div class="guide">${renderGuide()}</div>`;
+  $('#guide').innerHTML = UI.tab==='board' ? '' : `<button type="button" class="ghost board-back" data-do="goSub" data-tab="board" data-sub="home">${uiIcon('back')}返回工作看板</button>`;
   const ae = document.activeElement;
-  if (ae && ae.closest && ae.closest('#page') && ['INPUT', 'TEXTAREA', 'SELECT'].includes(ae.tagName) && ae.type !== 'checkbox' && ae.type !== 'radio') return;
+  const restoreBoardSearch = UI.tab==='board' && ae && ae.id==='boardSearch';
+  const searchCursor = restoreBoardSearch ? ae.selectionStart : null;
+  if (UI.tab!=='board' && ae && ae.closest && ae.closest('#page') && ['INPUT', 'TEXTAREA', 'SELECT'].includes(ae.tagName) && ae.type !== 'checkbox' && ae.type !== 'radio') return;
   const sub = UI.sub[UI.tab];
+  if(UI.tab==='board') { $('#page').innerHTML=pageBoard(); applyBoardFilters(); if(restoreBoardSearch){const input=$('#boardSearch');input.focus();if(searchCursor!==null)input.setSelectionRange(searchCursor,searchCursor);} return; }
   $('#page').innerHTML = ({img: pageImg, copy: pageCopy, pub: pagePub, hist: pageHist})[UI.tab](sub);
   bindDrops();
   addTitles();
   const tb = $('#rBody'); if (tb) tb.oninput = () => { $('#bodyCount').textContent = `${len(tb.value)} / 888`; };
 }
+
+const STUDIO_ICONS = {"grid": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgZmlsbD0iY3VycmVudENvbG9yIiBjbGFzcz0iYmkgYmktZ3JpZCIgdmlld0JveD0iMCAwIDE2IDE2Ij4KICA8cGF0aCBkPSJNMSAyLjVBMS41IDEuNSAwIDAgMSAyLjUgMWgzQTEuNSAxLjUgMCAwIDEgNyAyLjV2M0ExLjUgMS41IDAgMCAxIDUuNSA3aC0zQTEuNSAxLjUgMCAwIDEgMSA1LjV6TTIuNSAyYS41LjUgMCAwIDAtLjUuNXYzYS41LjUgMCAwIDAgLjUuNWgzYS41LjUgMCAwIDAgLjUtLjV2LTNhLjUuNSAwIDAgMC0uNS0uNXptNi41LjVBMS41IDEuNSAwIDAgMSAxMC41IDFoM0ExLjUgMS41IDAgMCAxIDE1IDIuNXYzQTEuNSAxLjUgMCAwIDEgMTMuNSA3aC0zQTEuNSAxLjUgMCAwIDEgOSA1LjV6bTEuNS0uNWEuNS41IDAgMCAwLS41LjV2M2EuNS41IDAgMCAwIC41LjVoM2EuNS41IDAgMCAwIC41LS41di0zYS41LjUgMCAwIDAtLjUtLjV6TTEgMTAuNUExLjUgMS41IDAgMCAxIDIuNSA5aDNBMS41IDEuNSAwIDAgMSA3IDEwLjV2M0ExLjUgMS41IDAgMCAxIDUuNSAxNWgtM0ExLjUgMS41IDAgMCAxIDEgMTMuNXptMS41LS41YS41LjUgMCAwIDAtLjUuNXYzYS41LjUgMCAwIDAgLjUuNWgzYS41LjUgMCAwIDAgLjUtLjV2LTNhLjUuNSAwIDAgMC0uNS0uNXptNi41LjVBMS41IDEuNSAwIDAgMSAxMC41IDloM2ExLjUgMS41IDAgMCAxIDEuNSAxLjV2M2ExLjUgMS41IDAgMCAxLTEuNSAxLjVoLTNBMS41IDEuNSAwIDAgMSA5IDEzLjV6bTEuNS0uNWEuNS41IDAgMCAwLS41LjV2M2EuNS41IDAgMCAwIC41LjVoM2EuNS41IDAgMCAwIC41LS41di0zYS41LjUgMCAwIDAtLjUtLjV6Ii8+Cjwvc3ZnPg==", "image": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgZmlsbD0iY3VycmVudENvbG9yIiBjbGFzcz0iYmkgYmktaW1hZ2UiIHZpZXdCb3g9IjAgMCAxNiAxNiI+CiAgPHBhdGggZD0iTTYuMDAyIDUuNWExLjUgMS41IDAgMSAxLTMgMCAxLjUgMS41IDAgMCAxIDMgMCIvPgogIDxwYXRoIGQ9Ik0yLjAwMiAxYTIgMiAwIDAgMC0yIDJ2MTBhMiAyIDAgMCAwIDIgMmgxMmEyIDIgMCAwIDAgMi0yVjNhMiAyIDAgMCAwLTItMnptMTIgMWExIDEgMCAwIDEgMSAxdjYuNWwtMy43NzctMS45NDdhLjUuNSAwIDAgMC0uNTc3LjA5M2wtMy43MSAzLjcxLTIuNjYtMS43NzJhLjUuNSAwIDAgMC0uNjMuMDYyTDEuMDAyIDEyVjNhMSAxIDAgMCAxIDEtMXoiLz4KPC9zdmc+", "calendar": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgZmlsbD0iY3VycmVudENvbG9yIiBjbGFzcz0iYmkgYmktY2FsZW5kYXI0IiB2aWV3Qm94PSIwIDAgMTYgMTYiPgogIDxwYXRoIGQ9Ik0zLjUgMGEuNS41IDAgMCAxIC41LjVWMWg4Vi41YS41LjUgMCAwIDEgMSAwVjFoMWEyIDIgMCAwIDEgMiAydjExYTIgMiAwIDAgMS0yIDJIMmEyIDIgMCAwIDEtMi0yVjNhMiAyIDAgMCAxIDItMmgxVi41YS41LjUgMCAwIDEgLjUtLjVNMiAyYTEgMSAwIDAgMC0xIDF2MWgxNFYzYTEgMSAwIDAgMC0xLTF6bTEzIDNIMXY5YTEgMSAwIDAgMCAxIDFoMTJhMSAxIDAgMCAwIDEtMXoiLz4KPC9zdmc+", "clock": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgZmlsbD0iY3VycmVudENvbG9yIiBjbGFzcz0iYmkgYmktY2xvY2staGlzdG9yeSIgdmlld0JveD0iMCAwIDE2IDE2Ij4KICA8cGF0aCBkPSJNOC41MTUgMS4wMTlBNyA3IDAgMCAwIDggMVYwYTggOCAwIDAgMSAuNTg5LjAyMnptMi4wMDQuNDVhNyA3IDAgMCAwLS45ODUtLjI5OWwuMjE5LS45NzZxLjU3Ni4xMjkgMS4xMjYuMzQyem0xLjM3LjcxYTcgNyAwIDAgMC0uNDM5LS4yN2wuNDkzLS44N2E4IDggMCAwIDEgLjk3OS42NTRsLS42MTUuNzg5YTcgNyAwIDAgMC0uNDE4LS4zMDJ6bTEuODM0IDEuNzlhNyA3IDAgMCAwLS42NTMtLjc5NmwuNzI0LS42OXEuNDA2LjQyOS43NDcuOTF6bS43NDQgMS4zNTJhNyA3IDAgMCAwLS4yMTQtLjQ2OGwuODkzLS40NWE4IDggMCAwIDEgLjQ1IDEuMDg4bC0uOTUuMzEzYTcgNyAwIDAgMC0uMTc5LS40ODNtLjUzIDIuNTA3YTcgNyAwIDAgMC0uMS0xLjAyNWwuOTg1LS4xN3EuMS41OC4xMTYgMS4xN3ptLS4xMzEgMS41MzhxLjA1LS4yNTQuMDgxLS41MWwuOTkzLjEyM2E4IDggMCAwIDEtLjIzIDEuMTU1bC0uOTY0LS4yNjdxLjA2OS0uMjQ3LjEyLS41MDFtLS45NTIgMi4zNzlxLjI3Ni0uNDM2LjQ4Ni0uOTA4bC45MTQuNDA1cS0uMjQuNTQtLjU1NSAxLjAzOHptLS45NjQgMS4yMDVxLjE4My0uMTgzLjM1LS4zNzhsLjc1OC42NTNhOCA4IDAgMCAxLS40MDEuNDMyeiIvPgogIDxwYXRoIGQ9Ik04IDFhNyA3IDAgMSAwIDQuOTUgMTEuOTVsLjcwNy43MDdBOC4wMDEgOC4wMDEgMCAxIDEgOCAweiIvPgogIDxwYXRoIGQ9Ik03LjUgM2EuNS41IDAgMCAxIC41LjV2NS4yMWwzLjI0OCAxLjg1NmEuNS41IDAgMCAxLS40OTYuODY4bC0zLjUtMkEuNS41IDAgMCAxIDcgOVYzLjVhLjUuNSAwIDAgMSAuNS0uNSIvPgo8L3N2Zz4=", "bag": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgZmlsbD0iY3VycmVudENvbG9yIiBjbGFzcz0iYmkgYmktYmFnIiB2aWV3Qm94PSIwIDAgMTYgMTYiPgogIDxwYXRoIGQ9Ik04IDFhMi41IDIuNSAwIDAgMSAyLjUgMi41VjRoLTV2LS41QTIuNSAyLjUgMCAwIDEgOCAxbTMuNSAzdi0uNWEzLjUgMy41IDAgMSAwLTcgMFY0SDF2MTBhMiAyIDAgMCAwIDIgMmgxMGEyIDIgMCAwIDAgMi0yVjR6TTIgNWgxMnY5YTEgMSAwIDAgMS0xIDFIM2ExIDEgMCAwIDEtMS0xeiIvPgo8L3N2Zz4=", "file": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgZmlsbD0iY3VycmVudENvbG9yIiBjbGFzcz0iYmkgYmktZmlsZS1lYXJtYXJrLXRleHQiIHZpZXdCb3g9IjAgMCAxNiAxNiI+CiAgPHBhdGggZD0iTTUuNSA3YS41LjUgMCAwIDAgMCAxaDVhLjUuNSAwIDAgMCAwLTF6TTUgOS41YS41LjUgMCAwIDEgLjUtLjVoNWEuNS41IDAgMCAxIDAgMWgtNWEuNS41IDAgMCAxLS41LS41bTAgMmEuNS41IDAgMCAxIC41LS41aDJhLjUuNSAwIDAgMSAwIDFoLTJhLjUuNSAwIDAgMS0uNS0uNSIvPgogIDxwYXRoIGQ9Ik05LjUgMEg0YTIgMiAwIDAgMC0yIDJ2MTJhMiAyIDAgMCAwIDIgMmg4YTIgMiAwIDAgMCAyLTJWNC41em0wIDF2MkExLjUgMS41IDAgMCAwIDExIDQuNWgyVjE0YTEgMSAwIDAgMS0xIDFINGExIDEgMCAwIDEtMS0xVjJhMSAxIDAgMCAxIDEtMXoiLz4KPC9zdmc+", "search": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgZmlsbD0iY3VycmVudENvbG9yIiBjbGFzcz0iYmkgYmktc2VhcmNoIiB2aWV3Qm94PSIwIDAgMTYgMTYiPgogIDxwYXRoIGQ9Ik0xMS43NDIgMTAuMzQ0YTYuNSA2LjUgMCAxIDAtMS4zOTcgMS4zOThoLS4wMDFxLjA0NC4wNi4wOTguMTE1bDMuODUgMy44NWExIDEgMCAwIDAgMS40MTUtMS40MTRsLTMuODUtMy44NWExIDEgMCAwIDAtLjExNS0uMXpNMTIgNi41YTUuNSA1LjUgMCAxIDEtMTEgMCA1LjUgNS41IDAgMCAxIDExIDAiLz4KPC9zdmc+", "circle": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgZmlsbD0iY3VycmVudENvbG9yIiBjbGFzcz0iYmkgYmktY2lyY2xlIiB2aWV3Qm94PSIwIDAgMTYgMTYiPgogIDxwYXRoIGQ9Ik04IDE1QTcgNyAwIDEgMSA4IDFhNyA3IDAgMCAxIDAgMTRtMCAxQTggOCAwIDEgMCA4IDBhOCA4IDAgMCAwIDAgMTYiLz4KPC9zdmc+", "alert": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgZmlsbD0iY3VycmVudENvbG9yIiBjbGFzcz0iYmkgYmktZXhjbGFtYXRpb24tY2lyY2xlLWZpbGwiIHZpZXdCb3g9IjAgMCAxNiAxNiI+CiAgPHBhdGggZD0iTTE2IDhBOCA4IDAgMSAxIDAgOGE4IDggMCAwIDEgMTYgME04IDRhLjkwNS45MDUgMCAwIDAtLjkuOTk1bC4zNSAzLjUwN2EuNTUyLjU1MiAwIDAgMCAxLjEgMGwuMzUtMy41MDdBLjkwNS45MDUgMCAwIDAgOCA0bS4wMDIgNmExIDEgMCAxIDAgMCAyIDEgMSAwIDAgMCAwLTIiLz4KPC9zdmc+", "inbox": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgZmlsbD0iY3VycmVudENvbG9yIiBjbGFzcz0iYmkgYmktaW5ib3giIHZpZXdCb3g9IjAgMCAxNiAxNiI+CiAgPHBhdGggZD0iTTQuOTggNGEuNS41IDAgMCAwLS4zOS4xODhMMS41NCA4SDZhLjUuNSAwIDAgMSAuNS41IDEuNSAxLjUgMCAxIDAgMyAwQS41LjUgMCAwIDEgMTAgOGg0LjQ2bC0zLjA1LTMuODEyQS41LjUgMCAwIDAgMTEuMDIgNHptOS45NTQgNUgxMC40NWEyLjUgMi41IDAgMCAxLTQuOSAwSDEuMDY2bC4zMiAyLjU2MmEuNS41IDAgMCAwIC40OTcuNDM4aDEyLjIzNGEuNS41IDAgMCAwIC40OTYtLjQzOHpNMy44MDkgMy41NjNBMS41IDEuNSAwIDAgMSA0Ljk4MSAzaDYuMDM4YTEuNSAxLjUgMCAwIDEgMS4xNzIuNTYzbDMuNyA0LjYyNWEuNS41IDAgMCAxIC4xMDUuMzc0bC0uMzkgMy4xMjRBMS41IDEuNSAwIDAgMSAxNC4xMTcgMTNIMS44ODNhMS41IDEuNSAwIDAgMS0xLjQ4OS0xLjMxNGwtLjM5LTMuMTI0YS41LjUgMCAwIDEgLjEwNi0uMzc0eiIvPgo8L3N2Zz4=", "plus": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgZmlsbD0iY3VycmVudENvbG9yIiBjbGFzcz0iYmkgYmktcGx1cy1sZyIgdmlld0JveD0iMCAwIDE2IDE2Ij4KICA8cGF0aCBmaWxsLXJ1bGU9ImV2ZW5vZGQiIGQ9Ik04IDJhLjUuNSAwIDAgMSAuNS41djVoNWEuNS41IDAgMCAxIDAgMWgtNXY1YS41LjUgMCAwIDEtMSAwdi01aC01YS41LjUgMCAwIDEgMC0xaDV2LTVBLjUuNSAwIDAgMSA4IDIiLz4KPC9zdmc+", "settings": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgZmlsbD0iY3VycmVudENvbG9yIiBjbGFzcz0iYmkgYmktZ2VhciIgdmlld0JveD0iMCAwIDE2IDE2Ij4KICA8cGF0aCBkPSJNOCA0Ljc1NGEzLjI0NiAzLjI0NiAwIDEgMCAwIDYuNDkyIDMuMjQ2IDMuMjQ2IDAgMCAwIDAtNi40OTJNNS43NTQgOGEyLjI0NiAyLjI0NiAwIDEgMSA0LjQ5MiAwIDIuMjQ2IDIuMjQ2IDAgMCAxLTQuNDkyIDAiLz4KICA8cGF0aCBkPSJNOS43OTYgMS4zNDNjLS41MjctMS43OS0zLjA2NS0xLjc5LTMuNTkyIDBsLS4wOTQuMzE5YS44NzMuODczIDAgMCAxLTEuMjU1LjUybC0uMjkyLS4xNmMtMS42NC0uODkyLTMuNDMzLjkwMi0yLjU0IDIuNTQxbC4xNTkuMjkyYS44NzMuODczIDAgMCAxLS41MiAxLjI1NWwtLjMxOS4wOTRjLTEuNzkuNTI3LTEuNzkgMy4wNjUgMCAzLjU5MmwuMzE5LjA5NGEuODczLjg3MyAwIDAgMSAuNTIgMS4yNTVsLS4xNi4yOTJjLS44OTIgMS42NC45MDEgMy40MzQgMi41NDEgMi41NGwuMjkyLS4xNTlhLjg3My44NzMgMCAwIDEgMS4yNTUuNTJsLjA5NC4zMTljLjUyNyAxLjc5IDMuMDY1IDEuNzkgMy41OTIgMGwuMDk0LS4zMTlhLjg3My44NzMgMCAwIDEgMS4yNTUtLjUybC4yOTIuMTZjMS42NC44OTMgMy40MzQtLjkwMiAyLjU0LTIuNTQxbC0uMTU5LS4yOTJhLjg3My44NzMgMCAwIDEgLjUyLTEuMjU1bC4zMTktLjA5NGMxLjc5LS41MjcgMS43OS0zLjA2NSAwLTMuNTkybC0uMzE5LS4wOTRhLjg3My44NzMgMCAwIDEtLjUyLTEuMjU1bC4xNi0uMjkyYy44OTMtMS42NC0uOTAyLTMuNDMzLTIuNTQxLTIuNTRsLS4yOTIuMTU5YS44NzMuODczIDAgMCAxLTEuMjU1LS41MnptLTIuNjMzLjI4M2MuMjQ2LS44MzUgMS40MjgtLjgzNSAxLjY3NCAwbC4wOTQuMzE5YTEuODczIDEuODczIDAgMCAwIDIuNjkzIDEuMTE1bC4yOTEtLjE2Yy43NjQtLjQxNSAxLjYuNDIgMS4xODQgMS4xODVsLS4xNTkuMjkyYTEuODczIDEuODczIDAgMCAwIDEuMTE2IDIuNjkybC4zMTguMDk0Yy44MzUuMjQ2LjgzNSAxLjQyOCAwIDEuNjc0bC0uMzE5LjA5NGExLjg3MyAxLjg3MyAwIDAgMC0xLjExNSAyLjY5M2wuMTYuMjkxYy40MTUuNzY0LS40MiAxLjYtMS4xODUgMS4xODRsLS4yOTEtLjE1OWExLjg3MyAxLjg3MyAwIDAgMC0yLjY5MyAxLjExNmwtLjA5NC4zMThjLS4yNDYuODM1LTEuNDI4LjgzNS0xLjY3NCAwbC0uMDk0LS4zMTlhMS44NzMgMS44NzMgMCAwIDAtMi42OTItMS4xMTVsLS4yOTIuMTZjLS43NjQuNDE1LTEuNi0uNDItMS4xODQtMS4xODVsLjE1OS0uMjkxQTEuODczIDEuODczIDAgMCAwIDEuOTQ1IDguOTNsLS4zMTktLjA5NGMtLjgzNS0uMjQ2LS44MzUtMS40MjggMC0xLjY3NGwuMzE5LS4wOTRBMS44NzMgMS44NzMgMCAwIDAgMy4wNiA0LjM3N2wtLjE2LS4yOTJjLS40MTUtLjc2NC40Mi0xLjYgMS4xODUtMS4xODRsLjI5Mi4xNTlhMS44NzMgMS44NzMgMCAwIDAgMi42OTItMS4xMTV6Ii8+Cjwvc3ZnPg==", "back": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNiIgZmlsbD0iY3VycmVudENvbG9yIiBjbGFzcz0iYmkgYmktYXJyb3ctbGVmdCIgdmlld0JveD0iMCAwIDE2IDE2Ij4KICA8cGF0aCBmaWxsLXJ1bGU9ImV2ZW5vZGQiIGQ9Ik0xNSA4YS41LjUgMCAwIDAtLjUtLjVIMi43MDdsMy4xNDctMy4xNDZhLjUuNSAwIDEgMC0uNzA4LS43MDhsLTQgNGEuNS41IDAgMCAwIDAgLjcwOGw0IDRhLjUuNSAwIDAgMCAuNzA4LS43MDhMMi43MDcgOC41SDE0LjVBLjUuNSAwIDAgMCAxNSA4Ii8+Cjwvc3ZnPg=="};
+function uiIcon(name){return `<i class="ui-icon" aria-hidden="true" style="--icon:url('${STUDIO_ICONS[name]||STUDIO_ICONS.file}')"></i>`;}
+const BOARD = {stage:'all', category:'all', query:''};
+const boardStages = [
+  ['info','资料待完善','补充产品信息、卖点和参考图','#a9adb4','还没有待补充的单品','新单品会从这里开始。'],
+  ['making','图片制作中','生成产品图、场景图和细节图','#3c85f8','图片工作已处理完','出图进度和待选图片会显示在这里。'],
+  ['review','文案待审核','AI 生成文案，人工审核与优化','#efb52e','暂时没有待审文案','图片和文案准备好后，会进入这里。'],
+  ['schedule','待排期','确认发布时间，准备发布','#57b77b','暂时没有待排期内容','文案定稿后，在这里安排发布。']
+];
+function studioNav(subBtns) {
+  const nav = (tab,sub,name,icon,active) => `<button type="button" class="sec-b" data-tab="${tab}" ${sub ? `data-sub="${sub}"` : ''} aria-selected="${active}" title="${name}" aria-label="${name}">${uiIcon(icon)}<b>${name}</b></button>`;
+  const lib = UI.tab === 'img' && UI.sub.img === 'lib';
+  return nav('board','home','工作看板','grid',UI.tab==='board') + nav('img','lib','素材库','image',lib) + nav('pub','cal','发布日历','calendar',UI.tab==='pub') + (UI.tab==='pub' ? `<div class="subs">${subBtns}</div>` : '') + nav('hist','all','历史记录','clock',UI.tab==='hist') + (UI.tab==='hist' ? `<div class="subs">${subBtns}</div>` : '') + `<details class="studio-tools" ${UI.tab==='copy'||(UI.tab==='img'&&!lib)?'open':''}><summary>创作工具</summary>${nav('img','info','单品资料','bag',UI.tab==='img'&&!lib)}${UI.tab==='img'&&!lib?`<div class="subs">${subBtns}</div>`:''}${nav('copy','review','内容管理','file',UI.tab==='copy')}${UI.tab==='copy'?`<div class="subs">${subBtns}</div>`:''}</details>`;
+}
+function boardReviewItem(r,items) {
+  return items.find(i=>String(i.id)===String(r.item)) || items.find(i=>(r.images||[]).some(p=>lastImages(i).includes(p)||(i.realPhotos||[]).includes(p)));
+}
+function boardEntries() {
+  const items=myItems(), reviews=mine(D.reviews), cards=[];
+  for(const it of items) {
+    const rs=reviews.filter(r=>boardReviewItem(r,items)===it);
+    const jobs=D.jobs.filter(j=>(j.params||{}).item===it.id&&(!(j.params||{}).account||String(j.params.account)===String(UI.acc)));
+    const running=jobs.find(j=>['running','queued'].includes(j.status));
+    if(running){cards.push({stage:['spec','topics'].includes(running.kind)?'info':'making',it,job:running});continue;}
+    const live=rs.filter(r=>draftState(r)!=='published');
+    if(live.length){for(const r of live)cards.push({stage:['ready','sched'].includes(draftState(r))?'schedule':'review',it,r});continue;}
+    if(rs.length) continue;
+    const latest=jobs.find(j=>['lock','write','spec'].includes(j.kind));
+    const hasImages=lastImages(it).length||(it.realPhotos||[]).length;
+    cards.push({stage:hasImages||(it.hasSpec&&it.specOk)||latest?.status==='failed'?'making':'info',it,job:latest?.status==='failed'?latest:null});
+  }
+  for(const r of reviews)if(!boardReviewItem(r,items)&&draftState(r)!=='published')cards.push({stage:['ready','sched'].includes(draftState(r))?'schedule':'review',it:{id:r.item||'',name:itemName(r.item)||'未关联单品',photos:{},category:'',colors:''},r});
+  return cards;
+}
+function boardAction(action,id,label,primary=false){return `<button type="button" class="${primary?'primary':''}" data-do="${action}" data-id="${esc(id)}">${label}</button>`;}
+function boardCard(c) {
+  const {it,r,job,stage}=c, photos=it.photos||{}, paths=r?.images||lastImages(it), photo=paths[0]||photos.front;
+  const tags=[it.category,it.colors].filter(Boolean).map(t=>`<span>${esc(t)}</span>`).join('');
+  const meta=`<div class="card-meta"><h3>${esc(it.name)}</h3><div class="card-tags">${tags}</div>`;
+  const name=esc((acc()||{}).name||'未选择账号'), date=job?.createdAt||it.createdAt;
+  const footer=action=>`<div class="card-footer"><div class="card-account">${name}${date?`<span>${fmtD(date)}</span>`:''}</div>${action}</div>`;
+  const image=(src,cls='')=>src?`<img class="card-photo ${cls}" src="${img(src)}" alt="${esc(it.name)}" loading="lazy">`:'';
+  let body='';
+  if(stage==='review') {
+    body=`${photo?`<img class="card-hero" src="${img(photo)}" alt="${esc(it.name)}" loading="lazy">`:''}${meta}</div><p class="card-excerpt">${esc(r.body||r.title||'打开文案，审核标题、正文和配图。')}</p>${draftState(r)==='rejected'?'<div class="card-status failed">已驳回 · 修改后重新审核</div>':''}<div class="card-thumbs">${paths.slice(0,3).map(p=>`<img src="${img(p)}" alt="配图" loading="lazy">`).join('')}${paths.length>3?`<span>+${paths.length-3}</span>`:''}</div>${footer(boardAction('boardReview',r.id,'审核文案',true))}`;
+  } else if(stage==='schedule') {
+    const s=D.schedule.find(s=>String(s.review)===String(r.id)&&['pending','running'].includes(s.status));
+    body=`<div class="card-product">${image(photo)}${meta}<div class="card-status">${uiIcon('calendar')}${s?'已安排发布':'文案已定稿'}<div class="card-substatus">${s?fmtDT(s.at):'选择合适的发布时间'}</div></div></div></div>${footer(boardAction('boardSchedule',r.id,s?'查看排期':'去排期'))}`;
+  } else if(stage==='info') {
+    const todos=[];if(!photos.front)todos.push('上传产品正面照');if(!it.fabric&&!it.texture)todos.push('补充材质与手感');if(!it.points&&!it.pain)todos.push('补充产品卖点');if(!it.hasSpec)todos.push('整理产品档案');else if(!it.specOk)todos.push('核对产品检查要点');
+    body=`<div class="card-product">${image(photos.front,'contain')}${meta}<ul class="card-todos">${todos.slice(0,3).map(t=>`<li>${uiIcon('circle')}${esc(t)}</li>`).join('')}</ul></div></div>${job?`<div class="card-activity"><span class="dot"></span>${job.status==='queued'?'排队中':esc(JOBKIND[job.kind]||'处理资料')+'中'}</div>`:''}${footer(boardAction('goItem',it.id,'完善资料'))}`;
+  } else {
+    let status='',action='';
+    if(job&&['running','queued'].includes(job.status)){
+      status=`<div class="card-activity"><span class="dot"></span>${job.status==='queued'?'任务排队中':esc(JOBKIND[job.kind]||'处理')+'进行中'}</div><div class="card-substatus">完成后自动更新，点击可查看过程</div>`;
+      action=boardAction('log',job.id,'看进度');
+    } else if(job?.status==='failed'){
+      status=`<div class="card-status failed">${uiIcon('alert')}${esc(JOBKIND[job.kind]||'任务')}失败</div><div class="card-substatus">${esc(String(job.summary||'查看任务记录，处理后再试。').slice(0,60))}</div>`;
+      action=boardAction('log',job.id,'查看原因');
+    } else {
+      status=`<div class="card-status">${paths.length?`已生成 ${paths.length} 张图片`:'已准备好，开始配置出图'}</div><div class="card-substatus">${paths.length?'挑选配图后，继续写文案':'选择拍法、模特和参考图'}</div>`;
+      action=boardAction(paths.length?'boardResults':'boardShoot',it.id,paths.length?'挑图写文案':'配置出图');
+    }
+    body=`<div class="card-product">${image(photo||photos.front,'contain')}${meta}</div></div>${status}${footer(action)}`;
+  }
+  const text=[it.name,it.category,it.colors,r?.title,r?.body].filter(Boolean).join(' ').toLowerCase();
+  return `<article class="workflow-card" data-stage="${stage}" data-category="${esc(it.category||'未分类')}" data-search="${esc(text)}">${body}</article>`;
+}
+function boardActivityNote(row){
+  return String(row.note||row.type[0]).replace(/drafts=(\d+)/g,'已完成 $1 篇文案').replace(/images=(\d+)/g,'已完成 $1 张图片').replace(/[；;]原进程完成，已恢复面板状态/g,'').replace(/完成 · 已完成/g,'已完成');
+}
+function boardRecentPhoto(row){const it=myItems().find(i=>String(row.title).includes(i.name));return it&&(it.photos||{}).front;}
+function pageBoard(){
+  const entries=boardEntries(), categories=[...new Set(entries.map(c=>c.it.category||'未分类'))].sort();
+  if(!categories.includes(BOARD.category))BOARD.category='all';
+  const recent=histRows().slice(0,4);
+  return `<div class="board-filters"><select id="boardAccount" aria-label="看板账号">${D.accounts.map(a=>`<option value="${esc(a.id)}" ${String(a.id)===String(UI.acc)?'selected':''}>${esc(a.name)}</option>`).join('')}</select><select id="boardStage" aria-label="筛选阶段"><option value="all">全部阶段</option>${boardStages.map(s=>`<option value="${s[0]}" ${BOARD.stage===s[0]?'selected':''}>${s[1]}</option>`).join('')}</select><select id="boardCategory" aria-label="筛选品类"><option value="all">全部品类</option>${categories.map(c=>`<option ${BOARD.category===c?'selected':''}>${esc(c)}</option>`).join('')}</select><label class="board-search">${uiIcon('search')}<input id="boardSearch" type="search" aria-label="搜索单品或文案" placeholder="搜索单品名称或文案…" value="${esc(BOARD.query)}"></label></div><div class="board-grid">${boardStages.map(([k,title,desc,color,empty,hint])=>`<section class="board-column" data-column="${k}" aria-label="${title}" style="--stage-color:${color}"><div class="board-column-head"><h2><span class="stage-dot"></span>${title}<span class="count">${entries.filter(c=>c.stage===k).length}</span></h2><p>${desc}</p></div><div class="board-cards">${entries.filter(c=>c.stage===k).map(boardCard).join('')}</div><div class="column-empty" ${entries.some(c=>c.stage===k)?'hidden':''}>${uiIcon('inbox')}<strong>${empty}</strong><span>${hint}</span></div></section>`).join('')}</div><section class="board-recent"><div class="board-recent-head"><h2>最近动态</h2><button class="ghost" type="button" data-do="goSub" data-tab="hist" data-sub="all">查看全部 ›</button></div><div class="recent-grid">${recent.map(r=>`<button class="recent-entry" type="button" data-do="goSub" data-tab="hist" data-sub="${r.kind}"><span class="recent-thumb">${boardRecentPhoto(r)?`<img src="${img(boardRecentPhoto(r))}" alt="" loading="lazy">`:uiIcon(r.kind==='pub'?'calendar':'file')}</span><span class="recent-text"><time>${r.noTime?'待处理':fmtDT(r.at)}</time><b>${esc(r.title)}</b><span>${esc(boardActivityNote(r))}</span></span></button>`).join('')||'<span class="small muted">开始第一个单品后，操作记录会显示在这里。</span>'}</div></section><p class="board-note">看板展示当前账号的真实进度 · ${entries.length} 项内容 · ${new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',hour:'2-digit',minute:'2-digit',hour12:false}).format(new Date())} 更新</p>`;
+}
+function applyBoardFilters(){
+  if(UI.tab!=='board')return;
+  const q=BOARD.query.trim().toLowerCase();
+  document.querySelectorAll('.board-column').forEach(col=>{
+    col.hidden=BOARD.stage!=='all'&&BOARD.stage!==col.dataset.column;
+    let n=0;
+    col.querySelectorAll('.workflow-card').forEach(card=>{const shown=(BOARD.category==='all'||BOARD.category===card.dataset.category)&&(!q||card.dataset.search.includes(q));card.hidden=!shown;if(shown)n++;});
+    col.querySelector('.count').textContent=n;
+    col.querySelector('.column-empty').hidden=n>0;
+    const hint=col.querySelector('.column-empty span');if(hint)hint.textContent=q||BOARD.category!=='all'?'没有匹配的内容，试试其他筛选条件。':boardStages.find(s=>s[0]===col.dataset.column)[5];
+  });
+  const grid=$('.board-grid');if(grid)grid.classList.toggle('is-filtered',BOARD.stage!=='all');
+}
+document.addEventListener('input',e=>{if(e.target.id==='boardSearch'){BOARD.query=e.target.value;applyBoardFilters();}});
+document.addEventListener('change',e=>{
+  if(e.target.id==='boardStage'){BOARD.stage=e.target.value;applyBoardFilters();}
+  if(e.target.id==='boardCategory'){BOARD.category=e.target.value;applyBoardFilters();}
+  if(e.target.id==='boardAccount'){$('#acc').value=e.target.value;$('#acc').dispatchEvent(new Event('change'));}
+});
 
 // ================================================================ 第 1 块 产品图
 const AIF = {name: '名称', code: '款号', category: '品类', colors: '颜色', sizes: '尺码', fabric: '面料', price: '价格', fit: '版型', points: '卖点'};
@@ -1671,6 +1839,10 @@ document.addEventListener('click', async e => {
   const b = e.target.closest('[data-do]'); if (!b || b.closest('dialog')) return;
   const id = b.dataset.id, r = D.reviews.find(x => String(x.id) === String(id)), it = D.items.find(i => i.id === id);
   switch (b.dataset.do) {
+    case 'boardReview': UI.review=String(id); go('copy','review'); break;
+    case 'boardSchedule': UI.pubSel=String(id); go('pub','queue'); break;
+    case 'boardShoot': UI.item=id; go('img','shoot'); break;
+    case 'boardResults': UI.item=id; go('img','result'); break;
     case 'goSub': go(b.dataset.tab, b.dataset.sub); break;
     case 'goLogin': go('pub', 'login'); break;
     case 'goItem': UI.item = id; go('img', 'info'); break;
