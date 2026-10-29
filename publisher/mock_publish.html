@@ -16,6 +16,8 @@ xhs-publish-btn{display:block;width:300px;height:40px;background:#f33}
 <xhs-publish-btn is-publish="true"></xhs-publish-btn>
 <script>
 window.__topics = [];
+const widget = document.querySelector('xhs-publish-btn');
+widget.attachShadow({mode:'closed'}).innerHTML = '<button class="bg-red">发布</button>';
 const SUG = {'小个子穿搭': ['#小个子穿搭技巧\n1.2亿浏览', '#小个子穿搭\n5亿浏览'], '外套': ['#外套搭配', '#外套[话题]#']};
 document.querySelector('.upload-input').addEventListener('input', e => { window.__inp = (window.__inp||0)+1; });
 document.querySelector('.upload-input').onchange = e => {

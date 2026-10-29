@@ -512,7 +512,7 @@ const refStyle = r => D.lock.refStyles[r] || 'other';
 // 这款能配文案的图：AI 出的 + 自己拍的实拍图 + 面料近拍
 const isReal = (it, p) => (it.originalImages || it.realPhotos || []).includes(p) || p === it.photos.detail_1;
 // 写文案只能用同一批出的图（实拍图随便加）；评 C 的、驳回的选不了
-const imgPool = it => [...new Set(batchImages(it).concat(it.originalImages || it.realPhotos || [], it.photos.detail_1 ? [it.photos.detail_1] : []))];
+const imgPool = it => [...new Set(batchImages(it).concat(it.originalImages || it.realPhotos || [], it.photos.detail_1 ? [it.photos.detail_1] : [], it.collages || []))];
 const defaultImgs = it => batchImages(it).filter(p => !isBad(it, p)).concat(it.realPhotos || []);
 const isBad = (it, p) => ((it.grades || {})[p] || {}).grade === 'C' || !!(D.imgRejected || {})[p];
 const castOf = (itemId, aid = UI.acc) => ((D.cast || {})[itemId] || {})[String(aid)] || null;
@@ -573,7 +573,7 @@ const DESC = {
   'hist.pub': '已经发出去的笔记。', 'hist.fail': '没发出去的和被驳回的，处理完就从这里消失。', 'hist.ai': '交给 AI 的每件事：出选题、写档案、出图、写文案、改稿。',
 };
 const TABS = [['board','工作看板','内容工作流'],
-  ['img', '第 1 块', '产品图'], ['copy', '第 2 块', '文案'], ['pub', '第 3 块', '发布'], ['hist', '第 4 块', '历史记录']];
+  ['img', '第 1 块', '产品图'], ['copy', '第 2 块', '文案'], ['pub', '第 3 块', '发布'], ['hist', '第 4 块', '历史记录'], ['account','账号管理','账号管理']];
 function subsOf(tab) {
   const R = mine(D.reviews);
   const nTodo = R.filter(r => ['todo', 'rejected'].includes(draftState(r))).length, nReady = R.filter(r => draftState(r) === 'ready').length;
@@ -581,11 +581,12 @@ function subsOf(tab) {
     board: [['home','内容工作流']],
     img: [['info', '照片和资料'], ['shoot', '出图'], ['result', '出好的图'], ['lib', '模特和参考图库']],
     copy: [['topic', `选题库（${unusedTopics().length}）`], ['review', `审稿（${nTodo}）`]].concat(UI.sub.copy === 'write' ? [['write', '写稿']] : [], [['set', '文案设定']]),
-    pub: [['queue', `待发布（${nReady}）`], ['cal', '排期日历'], ['login', '账号登录']],
+    pub: [['queue', `待发布（${nReady}）`], ['cal', '排期日历']],
+    account: [['login','账号管理']],
     hist: [['all', '全部'], ['pub', '已发布'], ['fail', '没发出 / 驳回'], ['ai', 'AI 任务']],
   }[tab];
 }
-function go(tab, sub) { UI.tab = tab; if (sub) UI.sub[tab] = sub; save(); render(); window.scrollTo(0, 0); }
+function go(tab, sub) { if(tab==='pub' && sub==='login') tab='account'; UI.tab = tab; if (sub) UI.sub[tab] = sub; save(); render(); window.scrollTo(0, 0); }
 
 function render() {
   document.body.dataset.view = UI.tab;
@@ -594,7 +595,7 @@ function render() {
   sel.value = UI.acc;
   const a = acc();
   $('#online').className = 'login' + (a && a.online ? ' on' : '');
-  $('#online').innerHTML = a ? `<i></i>${a.online ? '小红书已登录' : '小红书未登录，点这里扫码'}` : '';
+  $('#online').innerHTML = a ? `<i></i>账号管理 · ${a.online ? '已登录' : '未登录'}` : '';
   const run = activeJobs(), cur = run.find(j => j.status === 'running');
   const lastFail = D.jobs.find(j => j.status === 'failed' && Date.now() - (j.endedAt || 0) < 6 * 3600e3);
   $('#aiBtn').innerHTML = run.length ? `<span class="dot"></span><span>${esc(cur ? cur.title : '排队中')}${run.length > 1 ? ` 等 ${run.length} 件` : ''}</span>` : lastFail ? '<span class="pill bad">有任务失败</span><span>点开看</span>' : '<span class="muted">AI 空闲 · 看任务记录</span>';
@@ -603,6 +604,7 @@ function render() {
   const nTodo = R.filter(r => draftState(r) === 'todo').length, nReady = R.filter(r => draftState(r) === 'ready').length;
   const counts = {img: [myItems().some(i => i.busy) ? '…' : myItems().length || '', false], copy: [nTodo || '', nTodo > 0],
     pub: [nReady || st.scheduled || '', nReady > 0], hist: [st.failed || '', st.failed > 0]};
+  if(UI.tab==='pub' && UI.sub.pub==='login'){UI.tab='account';UI.sub.account='login';}
   const subs = subsOf(UI.tab);
   if (!subs.some(s => s[0] === UI.sub[UI.tab])) UI.sub[UI.tab] = subs[0][0];
   const subBtns = subs.map(([k, l]) => { const m = l.match(/^(.*?)（(\d+)）$/); return `<button type="button" data-tab="${UI.tab}" data-sub="${k}" aria-selected="${UI.sub[UI.tab] === k}"><span>${esc(m ? m[1] : l)}</span>${m && m[2] !== '0' ? `<span class="num">${m[2]}</span>` : ''}</button>`; }).join('');
@@ -634,7 +636,7 @@ function render() {
   if (UI.tab!=='board' && ae && ae.closest && ae.closest('#page') && ['INPUT', 'TEXTAREA', 'SELECT'].includes(ae.tagName) && ae.type !== 'checkbox' && ae.type !== 'radio') return;
   const sub = UI.sub[UI.tab];
   if(UI.tab==='board') { $('#page').innerHTML=pageBoard(); applyBoardFilters(); if(restoreBoardSearch){const input=$('#boardSearch');input.focus();if(searchCursor!==null)input.setSelectionRange(searchCursor,searchCursor);} return; }
-  $('#page').innerHTML = ({img: pageImg, copy: pageCopy, pub: pagePub, hist: pageHist})[UI.tab](sub);
+  $('#page').innerHTML = ({img: pageImg, copy: pageCopy, pub: pagePub, hist: pageHist, account: loginPage})[UI.tab](sub);
   bindDrops();
   addTitles();
   const tb = $('#rBody'); if (tb) tb.oninput = () => { $('#bodyCount').textContent = `${len(tb.value)} / 888`; };
@@ -767,16 +769,16 @@ function infoPage(it) {
   }).join('');
   const notes = (it.photoNotes || []).map(n => `<div class="hint warn">${esc(n)}</div>`).join('');
   let spec;
-  if (it.busy === 'spec') spec = busyHint('AI 正在按照片和产品资料写档案，大约 3–5 分钟。完成后核对衣服外观与设计细节。');
+  if (it.busy === 'spec') spec = busyHint('AI 正在逐张识别照片并整理档案，大约 3–5 分钟。完成后先核对正面、背面和细节，再选择出图类型；此时不会写文案。');
   else if (!it.hasSpec) spec = `<div class="hint">照片放好后，让 AI 按照片写档案：颜色、材质、领型、扣子这些出图时要锁住的细节，最后列出「检查要点」。</div>
-      <div><button type="button" class="primary" data-do="spec" data-id="${esc(it.id)}" ${it.photos.front ? '' : 'disabled title="先上传正面照"'}>让 AI 按照片写档案</button></div>`;
+      <div><button type="button" class="primary" data-do="spec" data-id="${esc(it.id)}" ${it.photos.front || (it.uploadPhotos || []).length ? '' : 'disabled title="先上传产品照片"'}>让 AI 按照片写档案</button></div>`;
   else spec = `<div class="hint">出图时 AI 会逐条放大对照：「必过」不对的图会重做，「尽量」不对只提醒你。${it.checks.some(c => c.unsure) && !it.specOk ? '<br><b>黄色的几条 AI 从照片上看不准</b>，请对着实物看一眼再打勾。' : ''}</div>
       <div class="checks" id="checks">${it.checks.map((c, i) => chkRow(c, i, it.specOk)).join('')}</div>
       <div class="row"><button type="button" class="ghost" data-do="addCheck">＋ 加一条</button><button type="button" class="link" data-do="viewSpec" data-id="${esc(it.id)}">看完整档案</button><button type="button" class="link" data-do="spec" data-id="${esc(it.id)}">照片换了，重写档案</button></div>`;
   const aiNote = (it.aiFilled || []).length ? `<div class="hint">${Object.keys(AIF).filter(k => (it.aiFilled || []).includes(k)).map(k => AIF[k]).join('、')}是 AI 按产品照片整理的，<button type="button" class="link" data-do="editItem" data-id="${esc(it.id)}">核对一下</button></div>` : '';
   const tJob = activeJobs().find(j => j.kind === 'topics' && j.params.forItem === it.id);
   const tN = myTopics().filter(t => t.item === it.id && t.status === 'unused').length;
-  const topicNote = tJob ? busyHint('产品材质和特色资料填好了，AI 正在给这款出 5 条选题，好了放进「文案 › 选题库」。')
+  const topicNote = it.guidedIntake ? '<div class="small muted">本款按「识别照片 → 选择出图 → 图片完成 → 编写文案」处理。</div>' : tJob ? busyHint('产品材质和特色资料填好了，AI 正在给这款出 5 条选题，好了放进「文案 › 选题库」。')
     : tN ? `<div class="hint good">这款在选题库里有 ${tN} 条没用的选题。<button type="button" class="link" data-do="goSub" data-tab="copy" data-sub="topic">去看</button></div>`
     : '<div class="small muted">材质与特色卖点（或痛点）填好后，AI 会自动给这款出 5 条选题，放进「文案 › 选题库」。</div>';
   const fld = (k, l, ph, wide) => `<label class="f ${wide ? 'wide' : ''}">${l}<input id="if-${k}" value="${esc(it[k] || '')}" placeholder="${esc(ph)}"></label>`;
@@ -786,7 +788,7 @@ function infoPage(it) {
       <span class="cap"><b>${l}</b>${p ? '<span class="pill good">✓</span>' : k === 'front' ? '<span class="pill bad">必须</span>' : ''}</span></div>`; };
   const suit = pieces.map(pc => `<div class="sec"><div class="h"><h3>套装 · ${esc(pc.name)}</h3><div class="row"><button type="button" class="link" data-do="renamePiece" data-id="${esc(it.id)}" data-piece="${pc.id}">改名</button><button type="button" class="link" style="color:var(--bad)" data-do="delPiece" data-id="${esc(it.id)}" data-piece="${pc.id}">删掉这件</button></div></div>
       <div class="slots">${pslot(pc, 'front', '正面')}${pslot(pc, 'back', '背面')}${pslot(pc, 'detail', '细节')}</div></div>`).join('');
-  return `<div class="sec"><div class="h"><h3>${pieces.length ? `套装 · ${esc(it.mainPiece || '主件')} <button type="button" class="link" data-do="renameMain" data-id="${esc(it.id)}">改名</button>` : '产品照片'}</h3><span class="small muted">纯色背景平铺或挂拍；照片越全，出图越不走样</span></div><div class="slots">${slots}</div>${notes}</div>
+  return `<div class="sec"><div class="h"><h3>${pieces.length ? `套装 · ${esc(it.mainPiece || '主件')} <button type="button" class="link" data-do="renameMain" data-id="${esc(it.id)}">改名</button>` : '产品照片'}</h3><span class="small muted">纯色背景平铺或挂拍；照片越全，出图越不走样</span></div><div class="slots">${slots}</div>${notes}${(it.uploadPhotos || []).length ? `<details open><summary>整组上传原图 · ${it.uploadPhotos.length} 张 · ${it.photosRecognized ? '已识别，可点击上方主图替换纠正' : '等待 AI 识别'}</summary><div class="refs">${it.uploadPhotos.map(x => `<div class="ref"><img class="th" src="${img(x.path)}" alt="${esc(x.name)}"><span class="l">${esc(({front:'正面',back:'背面',detail_1:'面料近拍',detail_2:'关键设计',other:'其他 / 待确认',pending:'待识别'})[x.role] || '待确认')} · ${esc(x.name)}</span></div>`).join('')}</div></details>` : ''}</div>
     ${suit}<div class="row small"><button type="button" class="ghost" data-do="addPiece" data-id="${esc(it.id)}" ${pieces.length >= 3 ? 'disabled' : ''}>＋ 这是套装，再加一件</button><span class="muted">${pieces.length ? `一套 ${pieces.length + 1} 件。生图一次只能附 4 张产品图，会先附每件的正面，再补细节。加减件后要重写档案。` : '上衣配半裙、西装配裤子这种成套卖的，每件单独放照片。'}</span></div>
     <div class="sec"><div class="h"><h3>实拍图（可不放）</h3><span class="small muted">自己拍的上身、挂拍、平铺、手摸面料；不过 AI，写文案时和 AI 图一起挑</span></div>
       ${reals ? `<div class="refs">${reals}</div>` : ''}<div class="row"><button type="button" data-do="addReal" data-id="${esc(it.id)}">＋ 加实拍图</button></div></div>
@@ -799,7 +801,8 @@ function infoPage(it) {
       ${fld('goods', '挂商品（店铺商品 ID，发布时自动挂；没开店就空着）', 'CT-2410-02', true)}</div>
       <div class="row between" style="flex-wrap:nowrap;align-items:flex-start">${topicNote}<button type="button" data-do="saveInfo" data-id="${esc(it.id)}">保存资料</button></div></div>
     <div class="sec"><div class="h"><h3>检查要点</h3></div>${spec}</div>
-    ${it.hasSpec && it.busy !== 'spec' ? `<div class="actions"><span class="small muted" id="chkLeft">${it.specOk ? '检查要点已核对' : '核对完检查要点就能出图'}</span><button type="button" class="primary big" data-do="confirmSpec" data-id="${esc(it.id)}">${it.specOk ? '已核对，去出图 →' : '没问题，去出图 →'}</button></div>` : ''}`;
+    ${it.guidedIntake && it.hasSpec && it.busy !== 'spec' ? typePicker() + '<div class="hint">选好图片类型后，核对检查要点并进入出图设置。图片完成后才会按实际图片写文案。</div>' : ''}
+    ${it.hasSpec && it.busy !== 'spec' ? `<div class="actions"><span class="small muted" id="chkLeft">${it.specOk ? '检查要点已核对' : '核对完检查要点就能出图'}</span><button type="button" class="primary big" data-do="confirmSpec" data-id="${esc(it.id)}">${it.specOk ? '选择要生成的图片 →' : '确认识别与档案，选择出图 →'}</button></div>` : ''}`;
 }
 const chkRow = (c, i, ok) => `<div class="chk ${c.unsure && !ok ? 'unsure' : ''}">${c.unsure && !ok ? '<input type="checkbox" aria-label="已对着实物核对">' : '<span class="sp"></span>'}
   <select aria-label="级别"><option ${c.level === '必过' ? 'selected' : ''}>必过</option><option ${c.level === '尽量' ? 'selected' : ''}>尽量</option></select>
@@ -809,7 +812,7 @@ const styleFor = (k, aid = UI.acc) => { const l = (D.styleAccounts || {})[k] || 
 const styleOpts = () => [['mirror', '对镜自拍', '手机挡脸 · 试衣镜 / 电梯镜 / 卧室镜'], ['street', '街拍', '走路 · 回头 · 过马路 · 靠墙']]
   .concat((D.styleGroups || []).map(g => [g.id, g.name, g.note || '自己加的一组'])).filter(x => styleFor(x[0])).concat([['own', '自己挑', '从全部参考图里选']]);
 const FACE_NAME = {hide: '不露脸', model: '换成我们的模特', ai: 'AI 脸', none: '没有人的静物'};
-const SHOOT_TYPES = [['mirror', '对镜自拍', '日常上身 · 需要参考图'], ['street', '街拍穿搭', '生活场景 · 需要参考图'], ['lookbook', '影棚 Lookbook', '统一系列 · 需要影棚参考图'], ['still', '产品静物', '挂拍 / 平铺 · 不需要参考图'], ['detail', '面料与设计特写', '局部细节 · 不需要参考图']];
+const SHOOT_TYPES = [['mirror', '对镜自拍', '日常上身 · 需要参考图'], ['street', '街拍穿搭', '生活场景 · 需要参考图'], ['lookbook', '淘宝 Lookbook', '淘宝上架图 · 文案可选'], ['still', '产品静物', '挂拍 / 平铺 · 不需要参考图'], ['detail', '面料与设计特写', '局部细节 · 不需要参考图']];
 const productShoot = () => ['still', 'detail'].includes(PICK.shootType);
 const typePicker = () => `<div class="sec"><h3>这次出什么图</h3><div class="stylepick">${SHOOT_TYPES.map(([k,n,t]) => `<button type="button" data-do="shootType" data-k="${k}" aria-pressed="${PICK.shootType === k}"><b>${n}</b><span class="small muted">${t}</span></button>`).join('')}</div></div>`;
 function brandingPick(it) {
@@ -892,7 +895,7 @@ function shootPage(it) {
     ${PICK.reuse ? `<div class="hint good">照「${esc(PICK.reuse)}」的配方带好了：风格、参考图和补充要求都一样。${bound ? '模特按这款固定的来。' : ''}生图没有固定 seed，出来会很像，但不会一模一样。</div>` : ''}
     ${PICK.fromAcc && !PICK.reuse ? `<div class="hint good">按「${esc((acc() || {}).name || '')}」上次的拍法带好了：${esc(styleName || '')} · ${FACE_NAME[PICK.face] || ''}${PICK.face === 'model' && PICK.model ? ' ' + esc(PICK.model) : ''} · ${PICK.refs.length} 张参考图。要换就点下面。</div>` : ''}
     ${typePicker()}
-    ${PICK.shootType === 'lookbook' ? '<div class="hint">请选择影棚参考图，系列背景、光线和构图按参考图保持统一。</div>' : ''}
+    ${PICK.shootType === 'lookbook' ? '<div class="hint">淘宝上架 Lookbook：系列背景、光线和构图保持统一，产品清楚完整。默认只出图，可勾选下方文案选项；请选择影棚参考图。</div>' : ''}
     <div class="sec"><div class="h"><h3>参考图分组</h3><span class="small muted">选了就自动带上图库里这一组参考图</span></div>
       <div class="stylepick">${styleOpts().map(([k, n, tip]) => `<button type="button" data-do="style" data-k="${esc(k)}" aria-pressed="${PICK.style === k}"><b>${esc(n)}</b><span class="small muted">${esc(tip)}</span></button>`).join('')}</div></div>
     ${bound ? lockCard(it, bound) : facePick(models)}${brandingPick(it)}
@@ -904,7 +907,7 @@ function shootPage(it) {
     <label class="f">计划张数（也可逐张点选参考图）<select id="humanCount">${Array.from({length: Math.min(9,shown.length)},(_,i) => `<option value="${i+1}" ${PICK.refs.length === i+1 ? 'selected' : ''}>${i+1} 张</option>`).join('')}</select></label>
     <label class="f">补充要求（可不填）<input id="lockNote" value="${esc(PICK.note || '')}" placeholder="例：外套扣子全扣上；下装和鞋保留参考图原来的"></label>
     ${PICK.refs.length > 1 ? `<label class="row small" style="flex-wrap:nowrap;align-items:flex-start;gap:8px"><input type="checkbox" id="trial" ${PICK.trial ? 'checked' : ''} style="width:auto"> 先试出 1 张，你看过构图、脸和衣服都对，再出剩下的 ${PICK.refs.length - 1} 张（推荐：错了只白出 1 张）</label>` : ''}
-    <div class="sec"><label class="row small" style="flex-wrap:nowrap;align-items:flex-start;gap:8px"><input type="checkbox" id="autoWrite" ${PICK.autoWrite ? 'checked' : ''} style="width:auto"> 出完自动挑 A 级图写文案（有这款的选题就用上），写好放进「文案 › 审稿」</label>
+    <div class="sec"><label class="row small" style="flex-wrap:nowrap;align-items:flex-start;gap:8px"><input type="checkbox" id="autoWrite" ${PICK.autoWrite ? 'checked' : ''} style="width:auto"> ${PICK.shootType === 'lookbook' ? '同时编写文案（可选，默认只制作淘宝图）' : '出完自动挑 A/B 级图写文案，写好放进「文案 › 审稿」'}</label>
       ${PICK.autoWrite ? `<label class="row small" style="flex-wrap:nowrap;align-items:flex-start;gap:8px;margin-left:24px"><input type="checkbox" id="autoSplit" ${PICK.split === 2 ? 'checked' : ''} style="width:auto"> 图够 4 张就拆成 2 篇（材质细节一篇、场景搭配一篇）</label>` : ''}</div>
     ${D.accounts.length > 1 ? `<div class="row between small"><span class="muted">同一款要发好几个号？每个号按自己记住的拍法各出一组，图不重复，出完各写各的稿。</span><button type="button" class="ghost" data-do="multiShoot" data-id="${esc(it.id)}">给几个号各出一组</button></div>` : ''}
     <div class="actions"><span class="small muted">${PICK.refs.length ? (PICK.trial && PICK.refs.length > 1 ? `先试出 1 张 · 约 ${est / PICK.refs.length} 分钟，看过再出剩下的 ${PICK.refs.length - 1} 张` : `${PICK.refs.length} 张 · 约 ${est} 分钟`) + ' · 额度用完会停在当前张，恢复后再点只补没出的' : '先选参考图'}</span>
@@ -957,12 +960,22 @@ function resultPage(it) {
     ${organizedGallery(it,cur,pool)}
     ${rej.length ? `<details><summary class="small">这批驳回了 ${rej.length} 张</summary><div class="stack" style="gap:6px;margin-top:8px">${rej.map(([p, x]) => `<div class="row small" style="flex-wrap:nowrap"><img src="${img(x.to)}" alt="" style="width:36px;height:48px;object-fit:cover;border-radius:6px"><span>${esc(base(p))} · ${esc(x.why)} · ${fmtDT(x.at)}</span><button type="button" class="ghost" data-do="imgRestore" data-p="${esc(p)}">恢复</button></div>`).join('')}</div></details>` : ''}
     <div class="row">${addReal}<span class="small muted">上身、挂拍、平铺、手摸面料都行；要删在「照片和资料」里删</span></div>
-    <div class="actions"><div class="row"><button type="button" class="link" data-do="report" data-id="${esc(it.id)}" ${cur ? '' : 'hidden'}>看出图报告</button><button type="button" class="link" data-do="imgInfo" data-id="${esc(it.id)}" ${cur ? '' : 'hidden'}>这批的配方</button></div>
+    <div class="actions"><button type="button" data-do="makeCollage" data-id="${esc(it.id)}">选择图片拼图</button><div class="row"><button type="button" class="link" data-do="report" data-id="${esc(it.id)}" ${cur ? '' : 'hidden'}>看出图报告</button><button type="button" class="link" data-do="imgInfo" data-id="${esc(it.id)}" ${cur ? '' : 'hidden'}>这批的配方</button></div>
       <button type="button" class="primary big" data-do="toWrite" ${W.imgs.length ? '' : 'disabled'}>用选中的 ${W.imgs.length} 张图写文案 →</button></div>`;
+}
+function dlgCollage(it) {
+  const entries=(it.imageLibrary || []).filter(x => x.selectable && !isBad(it,x.path));
+  const chosen=[];
+  openDlg(`<h2>选择图片拼图</h2><p class="small muted">选择 2–9 张，点击顺序就是拼图顺序；再次点击取消。完整保留画面，空白处留白。</p><div class="refs" id="collageChoices">${entries.map(x=>`<button type="button" class="ref" data-collage="${esc(x.path)}" aria-pressed="false"><img class="th" src="${img(x.path)}" alt="${esc(base(x.path))}"><span class="n"></span><span class="l">${esc(x.role || x.grade || '图片')}</span></button>`).join('')}</div><div class="form"><label class="f">排版<select id="collageLayout"><option value="grid">宫格</option><option value="horizontal">横排</option><option value="vertical">竖排</option></select></label><label class="f">画布<select id="collageRatio"><option value="square">淘宝方图 · 1200×1200</option><option value="portrait">竖图 · 1200×1600</option></select></label></div><div id="collageResult"></div>`+btns('生成拼图'),async f=>{
+    if(chosen.length<2){toast('至少选择 2 张');return false;}
+    const j=await api('/api/collage',{item:it.id,images:chosen,layout:f.querySelector('#collageLayout').value,ratio:f.querySelector('#collageRatio').value});
+    if(j){f.querySelector('#collageResult').innerHTML=`<h3>拼图已保存到图库</h3><img src="${img(j.path)}" alt="拼图预览" style="max-width:100%;max-height:400px;object-fit:contain"><p><a href="${img(j.path)}" download="淘宝拼图.jpg">下载拼图</a></p>`;toast('拼图完成，已保存到图库');}
+    return false;
+  }, f=>{f.querySelector('#collageChoices').onclick=e=>{const b=e.target.closest('[data-collage]');if(!b)return;const path=b.dataset.collage,i=chosen.indexOf(path);if(i>=0)chosen.splice(i,1);else if(chosen.length<9)chosen.push(path);else{toast('最多选择9张');return;} f.querySelectorAll('[data-collage]').forEach(x=>{const n=chosen.indexOf(x.dataset.collage);x.setAttribute('aria-pressed',n>=0);x.querySelector('.n').textContent=n>=0?n+1:'';});};});
 }
 function organizedGallery(it, cur, pool) {
   const batches = new Set(cur ? [cur.name,...myJobs(it).filter(j => (j.recipe || {}).reworkOf === cur.name).map(j => j.name)] : []);
-  const entries = (it.imageLibrary || []).filter(x => x.source === 'original' || batches.has(x.batch));
+  const entries = (it.imageLibrary || []).filter(x => x.source !== 'ai' || batches.has(x.batch));
   const counts = g => entries.filter(x => x.source === 'ai' && x.grade === g).length;
   const shown = entries.filter(x => (LIBVIEW.source === 'all' || x.source === LIBVIEW.source) && (LIBVIEW.grade === 'all' || (x.source === 'ai' && x.grade === LIBVIEW.grade)));
   const tile = x => {
@@ -973,10 +986,10 @@ function organizedGallery(it, cur, pool) {
     return `<div class="refwrap"><a class="ref" href="${img(x.path)}" target="_blank" rel="noopener"><img class="th" src="${img(x.path)}" alt="${esc(x.role)}"><span class="g">${gradePill(gr)}</span><span class="l">${esc(gr.note || base(x.path))}</span></a><div class="tileops"><button type="button" class="link" data-do="${x.restorePath?'imgRestore':(inOutput?'imgReject':'imgApprove')}" data-id="${esc(it.id)}" data-p="${esc(x.restorePath || x.path)}">${x.restorePath?'恢复人工驳回':(inOutput?'移入失败版本':'人工确认后使用')}</button></div></div>`;
   };
   const group = (title,list) => list.length ? `<section class="sec" data-image-group="${esc(title)}"><h3>${esc(title)} · ${list.length} 张</h3><div class="refs">${list.map(tile).join('')}</div></section>` : '';
-  const controls = `<div class="row between"><h3>图片整理</h3><button type="button" data-do="organizeImages">${LIBVIEW.organized ? '智能整理（已分组）' : '智能整理'}</button></div><div class="form"><label class="f">图片来源<select id="resultSource"><option value="all" ${LIBVIEW.source==='all'?'selected':''}>全部</option><option value="original" ${LIBVIEW.source==='original'?'selected':''}>原始素材</option><option value="ai" ${LIBVIEW.source==='ai'?'selected':''}>AI 生成</option></select></label><label class="f">AI 评级<select id="resultGrade" ${LIBVIEW.source==='original'?'disabled':''}>${['all','A','B','C','人工','未评级'].map(g=>`<option value="${g}" ${LIBVIEW.grade===g?'selected':''}>${g==='all'?'全部评级':`${g}（${counts(g)} 张）`}</option>`).join('')}</select></label></div><div class="small muted">原始素材与 AI 图分别展示，AI 评级来自检查报告；C 级与失败版本保留查看，人工确认前不能直接写稿。整理不移动或删除文件，筛选不会清空已选图片。</div>`;
+  const controls = `<div class="row between"><h3>图片整理</h3><button type="button" data-do="organizeImages">${LIBVIEW.organized ? '智能整理（已分组）' : '智能整理'}</button></div><div class="form"><label class="f">图片来源<select id="resultSource"><option value="all" ${LIBVIEW.source==='all'?'selected':''}>全部</option><option value="original" ${LIBVIEW.source==='original'?'selected':''}>原始素材</option><option value="ai" ${LIBVIEW.source==='ai'?'selected':''}>AI 生成</option><option value="collage" ${LIBVIEW.source==='collage'?'selected':''}>拼图成品</option></select></label><label class="f">AI 评级<select id="resultGrade" ${LIBVIEW.source==='original'?'disabled':''}>${['all','A','B','C','人工','未评级'].map(g=>`<option value="${g}" ${LIBVIEW.grade===g?'selected':''}>${g==='all'?'全部评级':`${g}（${counts(g)} 张）`}</option>`).join('')}</select></label></div><div class="small muted">原始素材与 AI 图分别展示，AI 评级来自检查报告；C 级与失败版本保留查看，人工确认前不能直接写稿。整理不移动或删除文件，筛选不会清空已选图片。</div>`;
   if (!shown.length) return controls + '<div class="empty">当前筛选下没有图片。</div>';
   if (!LIBVIEW.organized) return controls + `<div class="refs">${shown.map(tile).join('')}</div>`;
-  return controls + group('原始素材',shown.filter(x=>x.source==='original')) + ['A','B','C','人工','未评级'].map(g=>group(`AI 生成 · ${g}`,shown.filter(x=>x.source==='ai' && x.grade===g))).join('');
+  return controls + group('原始素材',shown.filter(x=>x.source==='original')) + group('拼图成品',shown.filter(x=>x.source==='collage')) + ['A','B','C','人工','未评级'].map(g=>group(`AI 生成 · ${g}`,shown.filter(x=>x.source==='ai' && x.grade===g))).join('');
 }
 function castOpts(cur, blank) {
   const v = cur && cur.face ? (cur.face === 'model' ? 'model:' + cur.model : cur.face) : '';
@@ -1384,7 +1397,7 @@ function dlgItem(it = {}) {
     + btns('保存', '<button value="del" class="ghost danger" formnovalidate>从工作台移除</button>'),
   async (f, v) => {
     if (v === 'del') return !!(await api('/api/item/delete', {id: it.id}));
-    const b = {id: it.id, status: it.status || '在售', topicAccount: UI.acc}; ITEM_KEYS.forEach(k => b[k] = (f.querySelector('#it-' + k) ? f.querySelector('#it-' + k).value.trim() : (it[k] || '')));
+    const b = {id: it.id, status: it.status || '在售', topicAccount: UI.acc, deferTopics: !!it.guidedIntake}; ITEM_KEYS.forEach(k => b[k] = (f.querySelector('#it-' + k) ? f.querySelector('#it-' + k).value.trim() : (it[k] || '')));
     if (!b.name) { toast('写个名称'); return false; }
     const j = await api('/api/item/save', b);
     if (j && j.topicJob) toast('产品材质和特色资料填好了，AI 开始给这款出 5 条选题');
@@ -1392,38 +1405,52 @@ function dlgItem(it = {}) {
   });
 }
 function dlgNew() {
-  const P = {};
+  const P = [];
+  let reading = false;
   const drop = (k, l, tip) => `<div class="slot"><button type="button" class="drop" data-new="${k}">＋ ${l}<br><span class="small">${tip}</span></button></div>`;
-  openDlg(`<h2>上新</h2><p class="small muted" style="margin:0">放入正面照，填上已知材质、特色和痛点，AI 据此整理档案；未知信息留空即可。</p>
-    <div class="intake">${drop('front', '衣服正面照', '必须，纯色背景平铺或挂拍')}</div>
-    <input type="file" id="newFile" accept="image/*" hidden>
+  openDlg(`<h2>上新</h2><p class="small muted" style="margin:0">① 多选上传同一件衣服 → ② AI 识别正面、背面、面料和关键设计 → ③ 选出图类型 → ④ 出图后写文案。</p>
+    <div class="intake">${drop('all', '多选上传产品照片', '可一次选 1–24 张，同一件衣服，不必按顺序')}</div>
+    <div id="newPreview" class="refs"></div><div id="newCount" class="small muted">尚未选择照片</div>
+    <input type="file" id="newFile" accept="image/*" multiple hidden>
     <label class="f">名称（可不填，AI 会起）<input id="it-name" placeholder="例如：灰色长毛翻领外套"></label>
     <div class="form"><label class="f">产品材质<input id="new-fabric" placeholder="例：圈圈纱针织，成分未知可不写"></label><label class="f">材质手感<input id="new-texture" placeholder="例：蓬松、细小圈粒"></label><label class="f">产品特色 / 卖点<input id="new-points" placeholder="例：圆领、罗纹收边"></label><label class="f">产品痛点<input id="new-pain" placeholder="例：想要有纹理又不厚重的毛衣"></label></div>
     <div class="stack" style="gap:8px"><b>每个号谁来穿</b><span class="small muted" style="margin-top:-6px">定下后这款在这个号每次出图都用它，不能临时换（要换得解锁并写原因）。默认值在「模特和参考图库」里设。</span>
-      ${D.accounts.map(a => `<label class="row" style="flex-wrap:nowrap;gap:10px"><span style="min-width:120px">${esc(a.name)}</span><select data-ncast="${esc(a.id)}" style="width:auto">${castOpts(a.cast, '先不定，第一次出图时再选')}</select></label>`).join('')}</div>` + btns('交给 AI'),
+      ${D.accounts.map(a => `<label class="row" style="flex-wrap:nowrap;gap:10px"><span style="min-width:120px">${esc(a.name)}</span><select data-ncast="${esc(a.id)}" style="width:auto">${castOpts(a.cast, '先不定，第一次出图时再选')}</select></label>`).join('')}</div>` + btns('上传并自动识别'),
   async f => {
-    if (!P.front) { toast('至少放一张衣服正面照'); return false; }
+    if (reading) { toast('照片正在读取，请稍候'); return false; }
+    if (!P.length) { toast('请至少选择一张产品照片'); return false; }
     const cast = {};
     f.querySelectorAll('[data-ncast]').forEach(x => { const c = parseCast(x.value); if (c) cast[x.dataset.ncast] = c; });
-    const j = await api('/api/item/new', {name: $('#it-name').value.trim(), photos: P, account: '', cast, fabric: $('#new-fabric').value.trim(), texture: $('#new-texture').value.trim(), points: $('#new-points').value.trim(), pain: $('#new-pain').value.trim()});
+    const j = await api('/api/item/new', {name: $('#it-name').value.trim(), uploads: P, account: '', cast, fabric: $('#new-fabric').value.trim(), texture: $('#new-texture').value.trim(), points: $('#new-points').value.trim(), pain: $('#new-pain').value.trim()});
     if (!j) return false;
-    UI.item = j.item.id; save(); go('img', 'info');
-    toast(j.job ? 'AI 开始按产品照片和已填材质、特色、痛点写档案' : '已添加；找不到锁图工作台，先在设置里填好路径');
+    UI.item = j.item.id; PICK.init = ''; PICK.shootType = 'still'; PICK.autoWrite = true; save(); go('img', 'info');
+    toast(j.job ? 'AI 正在识别整组照片，完成后请核对分类并选择出图类型' : '已添加；找不到锁图工作台，先在设置里填好路径');
     return true;
   }, f => {
     const fi = f.querySelector('#newFile');
-    const put = async (k, file) => {
-      if (!file || !/^image\//.test(file.type)) { toast('请选一张图片'); return; }
-      P[k] = await readFile(file);
-      f.querySelector(`[data-new="${k}"]`).innerHTML = `<img src="${P[k]}" alt="">`;
+    const draw = () => {
+      f.querySelector('#newPreview').innerHTML = P.map((x,i) => `<div class="ref refbox"><img class="th" src="${x.data}" alt="产品照片 ${i+1}"><button type="button" class="x ghost danger" data-remove="${i}" aria-label="移除照片 ${i+1}">×</button><span class="l">${esc(x.name)}</span></div>`).join('');
+      f.querySelector('#newCount').textContent = reading ? '正在读取照片…' : `已选 ${P.length} 张，可继续添加；上传后自动识别用途`;
     };
-    f.querySelectorAll('[data-new]').forEach(b => {
-      b.onclick = e => { e.preventDefault(); fi.dataset.k = b.dataset.new; fi.click(); };
-      b.ondragover = e => { e.preventDefault(); b.classList.add('over'); };
-      b.ondragleave = () => b.classList.remove('over');
-      b.ondrop = e => { e.preventDefault(); b.classList.remove('over'); const fs = Array.from(e.dataTransfer.files); put(b.dataset.new, fs[0]); if (fs[1] && b.dataset.new === 'front' && !P.tag) put('tag', fs[1]); };
-    });
-    fi.onchange = () => { put(fi.dataset.k, fi.files[0]); fi.value = ''; };
+    const put = async files => {
+      if (reading) return;
+      const images = Array.from(files).filter(x => /^image\//.test(x.type));
+      if (!images.length) { toast('请选择图片'); return; }
+      if (P.length + images.length > 24) { toast('一次最多 24 张，请减少选择'); return; }
+      reading = true; draw();
+      try { for (const file of images) {
+        if (file.size > 15 * 1024 * 1024) { toast(`${file.name} 超过 15MB，请缩小后上传`); continue; }
+        P.push({name:file.name, data:await readFile(file)});
+      }} catch (_) { toast('有照片读取失败，请重新添加'); }
+      finally { reading = false; draw(); }
+    };
+    f.querySelector('#newPreview').onclick = e => { const b=e.target.closest('[data-remove]'); if (b && !reading) { P.splice(Number(b.dataset.remove),1); draw(); } };
+    const drop = f.querySelector('[data-new]');
+    drop.onclick = () => fi.click();
+    drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
+    drop.ondragleave = () => drop.classList.remove('over');
+    drop.ondrop = e => { e.preventDefault(); drop.classList.remove('over'); put(e.dataTransfer.files); };
+    fi.onchange = () => { put(fi.files); fi.value = ''; };
   });
 }
 function dlgMulti(it) {
@@ -1530,7 +1557,7 @@ async function login(aid) {
 // ---------- 事件
 $('#big').onclick = e => { const b = e.target.closest('[data-tab]'); if (b) go(b.dataset.tab, b.dataset.sub); };
 $('#subm').onclick = e => { const b = e.target.closest('[data-sub]'); if (b) go(UI.tab, b.dataset.sub); };
-$('#online').onclick = () => go('pub', 'login');
+$('#online').onclick = () => go('account', 'login');
 $('#acc').onchange = e => { UI.acc = e.target.value; W.topic = null; W.cover = ''; PICK.init = ''; save(); render(); };
 $('#btnSettings').onclick = dlgSettings;
 $('#aiBtn').onclick = () => go('hist', 'ai');
@@ -1619,6 +1646,7 @@ const HELP = {
   sceneRef: ['选择静物参考图', '参考背景、光线和摆放氛围，衣服始终来自本产品照片；不选择则使用预设背景。', 'img.shoot'],
   uploadLabel: ['上传品牌主标近拍', '用于还原产品上真实的主标，主标不可见时不会臆造或搬到衣服外侧。', 'img.shoot'],
   shootLogo: ['上传 Logo 水印', '上传当前账号的真实 Logo，勾选水印后由工作台贴到成品右下角。', 'img.shoot'],
+  makeCollage: ['选择图片拼图', '从本产品图库选择2–9张，按所选顺序生成拼图，可下载或继续写文案。', 'img.result'],
   organizeImages: ['智能整理图片', '按原始素材和 AI 生成分组，AI 图片再分 A/B/C、人工与未评级；只改变展示，不移动或删除文件。', 'img.result'],
   lockRest: ['没问题，出剩下的', '试出的那 1 张看过没问题，接着出剩下的。', 'img.result'],
   multiShoot: ['给几个号各出一组', '同一款要发几个号时，每个号按自己的拍法各出一组，图不重复。', 'img.shoot'],
@@ -1878,7 +1906,7 @@ document.addEventListener('click', async e => {
     case 'shootType': {
       const type = b.dataset.k, cur = D.items.find(i => i.id === UI.item);
       if (cur && !['still','detail'].includes(type)) initPick(cur, ['mirror','street'].includes(type) ? type : 'own');
-      PICK.shootType = type; PICK.layout = 'mix'; PICK.shotKinds = null; PICK.count = type === 'detail' ? 2 : 4; PICK.reuse = '';
+      PICK.autoWrite = type !== 'lookbook'; PICK.shootType = type; PICK.layout = 'mix'; PICK.shotKinds = null; PICK.count = type === 'detail' ? 2 : 4; PICK.reuse = '';
       render(); break;
     }
     case 'style': { const cur = D.items.find(i => i.id === UI.item); if (cur) initPick(cur, b.dataset.k); if (PICK.shootType !== 'lookbook' && ['mirror','street'].includes(b.dataset.k)) PICK.shootType = b.dataset.k; render(); break; }
@@ -1959,6 +1987,7 @@ document.addEventListener('click', async e => {
     case 'multiShoot': { const cur = D.items.find(i => i.id === id); if (cur) dlgMulti(cur); break; }
     case 'report': { const lj = myJobs(it)[0]; openDlg(`<h2>出图报告</h2><p class="small muted" style="margin:0">${esc(lj ? lj.dir : '')}</p><pre class="log">${esc(lj && lj.report ? lj.report : '还没有报告')}</pre>` + closeBtn, () => {}); break; }
     case 'pickImg': { const p = b.dataset.p, i = W.imgs.indexOf(p); if (i >= 0) W.imgs.splice(i, 1); else W.imgs.push(p); render(); break; }
+    case 'makeCollage': dlgCollage(it); break;
     case 'toWrite': W.topic = null; go('copy', 'write'); break;
     // 文案
     case 'genTopics': { const j = await api('/api/job', {kind: 'topics', params: {account: UI.acc, count: 10, node: ($('#tpNode') || {}).value || ''}}); if (j) toast('AI 开始联网找痛点出选题，大约 3–5 分钟'); break; }

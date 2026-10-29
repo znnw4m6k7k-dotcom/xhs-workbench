@@ -16,7 +16,7 @@ class T(unittest.TestCase):
     def setUpClass(cls):
         cls.pw = sync_playwright().start()
         exe = "/opt/pw-browsers/chromium"
-        cls.b = cls.pw.chromium.launch(executable_path=exe, args=["--headless=new"]) if Path(exe).exists() else cls.pw.chromium.launch()
+        cls.b = cls.pw.chromium.launch(executable_path=exe, args=["--headless=new"]) if Path(exe).exists() else cls.pw.chromium.launch(channel="msedge" if os.name == "nt" else "chrome", headless=True)
         cls.img = Path(X.HOME) / "_t.png"
         cls.img.parent.mkdir(parents=True, exist_ok=True)
         cls.img.write_bytes(bytes.fromhex("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8ffff3f0005fe02fea7d6a4b30000000049454e44ae426082"))
@@ -46,6 +46,18 @@ class T(unittest.TestCase):
             route.fulfill(body=html, content_type="text/html; charset=utf-8")
         p.route("**/*", handle)
         return p
+
+    def test_closed_shadow_button_uses_actual_target(self):
+        page = self.b.new_page()
+        page.set_content('<xhs-publish-btn style="display:block;width:1200px;height:90px"></xhs-publish-btn>')
+        page.evaluate("""() => {
+            const root=document.querySelector('xhs-publish-btn').attachShadow({mode:'closed'});
+            root.innerHTML='<button class="bg-red" style="margin-left:20px">发布</button>';
+            root.querySelector('button').onclick=()=>window.clicked=true;
+        }""")
+        X._click_publish_widget(page,page.locator('xhs-publish-btn'))
+        self.assertTrue(page.evaluate('window.clicked'))
+        page.close()
 
     def test_pick_topic_exact_only(self):
         self.assertEqual(X.pick_topic(["#小个子穿搭技巧\n1亿", "#小个子穿搭\n5亿"], "小个子穿搭"), 1)

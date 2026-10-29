@@ -1519,6 +1519,77 @@ class PanelTests(unittest.TestCase):
         self.assertTrue(all(not x["selectable"] for x in entries if x["grade"] == "C"))
         self.assertEqual(len({x["path"] for x in entries}), len(entries))
 
+    def test_batch_upload_classification_and_no_early_copy(self):
+        self.lock_setup()
+        uploads = [{"name": f"photo_{i}.png", "data": self.b64(self.image.read_bytes() * 3)} for i in range(5)]
+        new = self.m.r_item_new({"uploads": uploads, "fabric": "针织", "points": "圆领"})
+        job, it = new["job"], new["item"]
+        self.assertTrue(job["params"]["classify"])
+        self.assertIsNone(self.m.find_slot(self.m.item_dir(it), "front"))
+        self.run_one(job)
+        state = self.m.load_state()
+        self.assertEqual([j["kind"] for j in state["jobs"]], ["spec"])
+        view = self.m.api_state()["items"][-1]
+        self.assertEqual(len(view["uploadPhotos"]), 5)
+        self.assertTrue(view["photos"]["back"])
+        self.assertTrue(view["photosRecognized"])
+        self.m.r_item_save(dict(it, points="外露缝线"))
+        self.assertTrue(self.m.find_item(self.m.load_state(), it["id"])["guidedIntake"])
+        self.assertEqual(len(self.m.load_state()["jobs"]), 1)
+
+    def test_invalid_batch_leaves_no_product(self):
+        before = len(self.m.load_state()["items"])
+        with self.assertRaises(ValueError):
+            self.m.r_item_new({"uploads": [{"data": "bad"}]})
+        self.assertEqual(len(self.m.load_state()["items"]), before)
+
+    def test_classifier_rejects_unknown_paths_and_can_retry(self):
+        self.lock_setup()
+        new = self.m.r_item_new({"uploads": [{"name":"x.png", "data":self.b64(self.image.read_bytes()*3)}]})
+        it = new["item"]
+        d = self.m.item_dir(it)
+        (d / "photo_roles.json").write_text('{"photos":[],"slots":{"front":"../../outside.jpg"}}', 'utf-8')
+        with self.assertRaises(ValueError): self.m.apply_photo_roles(it)
+        self.m.update_job(new["job"]["id"], status="failed")
+        retry = self.m.r_lock_job("spec", {"item":it["id"]})["job"]
+        self.assertTrue(retry["params"]["classify"])
+
+
+    def test_draft_counter_recovers_after_reset(self):
+        self.m.mutate(lambda s: s.update(drafts=[], lastDraftId=None))
+        d = {"title":"恢复稿", "body":"正文", "tags":[], "images":[str(self.image)]}
+        self.assertEqual(self.m.add_drafts("1", "", [d,d], "test"), [1,2])
+
+    def test_draft_counter_skips_published_and_string_ids(self):
+        self.m.mutate(lambda s: s.update(lastDraftId="5", published={"8":{}}, drafts=[]))
+        d = {"title":"新稿", "body":"正文", "tags":[], "images":[str(self.image)]}
+        self.assertEqual(self.m.add_drafts("1", "", [d], "test"), [9])
+
+
+    def test_collage_creates_image_and_keeps_sources(self):
+        from PIL import Image
+        root,it=self.shoot_ready()
+        sources=[]
+        for slot,color in [("front","red"),("back","blue")]:
+            path=self.m.item_dir(it)/(slot+".jpg")
+            Image.new("RGB",(60,80),color).save(path)
+            sources.append(str(path))
+        result=self.m.r_collage({"item":it["id"],"images":sources,"layout":"grid","ratio":"square"})
+        with Image.open(result["path"]) as im:self.assertEqual(im.size,(1200,1200))
+        self.assertTrue(all(Path(p).is_file() for p in sources))
+        view=self.m.api_state()["items"][-1]
+        self.assertIn(result["path"],view["collages"])
+        self.assertTrue(any(x["source"]=="collage" for x in view["imageLibrary"]))
+        with self.assertRaises(ValueError):self.m.r_collage({"item":it["id"],"images":[sources[0],str(self.image)]})
+
+    def test_taobao_lookbook_can_skip_copy(self):
+        root,it=self.shoot_ready()
+        job=self.m.r_lock_job("lock",{"item":it["id"],"account":"1","shootType":"lookbook","face":"none","style":"own","refs":self.m.list_refs()[:1]})["job"]
+        self.assertFalse(job["params"].get("autoWrite"))
+        text=(Path(job["params"]["jobDir"])/"job.md").read_text("utf-8")
+        self.assertIn("淘宝上架",text)
+
+
 class GuideTests(unittest.TestCase):
     """向导：每个按钮都要有一句说明，按钮说明模式和帮助搜索才不会漏。"""
     def test_every_button_has_help(self):

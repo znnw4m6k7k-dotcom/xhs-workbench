@@ -493,16 +493,34 @@ def _wait_publish_button_clickable(page, max_wait_sec: int = 30):
 
 
 def _click_publish_widget(page, widget) -> None:
-    """点击 <xhs-publish-btn> host 右侧 65% 位置（避开"暂存离开"那一半）。"""
+    """定位控件内真正的发布按钮；兼容平台的 closed Shadow DOM。"""
     widget.scroll_into_view_if_needed()
     page.wait_for_timeout(200)
-    box = widget.bounding_box()
-    if not box:
-        raise RuntimeError("新版发布按钮位置获取失败")
-    x = box["x"] + box["width"] * 0.65
-    y = box["y"] + box["height"] / 2
-    page.mouse.move(x, y)
-    page.mouse.click(x, y)
+    button = widget.locator('button.bg-red')
+    if button.count():
+        button.first.click()
+        return
+    session = page.context.new_cdp_session(page)
+    try:
+        doc = session.send('DOM.getDocument', {'depth': -1, 'pierce': True})
+        def find(node, inside=False):
+            inside = inside or node.get('nodeName') == 'XHS-PUBLISH-BTN'
+            attrs = dict(zip(node.get('attributes', [])[::2], node.get('attributes', [])[1::2]))
+            if inside and node.get('nodeName') == 'BUTTON' and 'bg-red' in attrs.get('class', '').split():
+                if 'disabled' in attrs or attrs.get('aria-disabled') == 'true':
+                    raise RuntimeError('发布按钮仍被禁用')
+                return node['backendNodeId']
+            for child in node.get('children', []) + node.get('shadowRoots', []):
+                hit = find(child, inside)
+                if hit: return hit
+            return None
+        backend = find(doc['root'])
+        if not backend:
+            raise RuntimeError('没有定位到控件内的发布按钮，已停止，未点击发布')
+        remote = session.send('DOM.resolveNode', {'backendNodeId': backend})['object']['objectId']
+        session.send('Runtime.callFunctionOn', {'objectId': remote, 'functionDeclaration': 'function(){this.click();}'})
+    finally:
+        session.detach()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
