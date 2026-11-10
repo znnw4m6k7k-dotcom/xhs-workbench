@@ -8,6 +8,7 @@
   3. 点完发布要等到「发布成功」才算成功，看不到就报错并截图，不再一律返回成功；
   4. 截图存到 ~/.xhs-studio/publisher/shots/，不放 /tmp；
   5. 多了「只填不发」（--dry-run）：所有内容填好、截图，但不点发布，用来安全试跑。
+  6. 发布成功后再去「笔记管理」按标题找到这篇，带回笔记链接（noteUrl）；找不到不算失败，只是不带链接。
 
   python3 xhs_publish.py login  --account 主号            # 弹出浏览器，扫码登录一次
   python3 xhs_publish.py check  --account 主号            # 看登录是否还有效
@@ -38,6 +39,10 @@ HOME = Path(os.environ.get("XHS_PUBLISHER_HOME") or (Path.home() / ".xhs-studio"
 SHOT_DIR = HOME / "shots"
 URL_PUBLIC = "https://creator.xiaohongshu.com/publish/publish?source=official"
 URL_LOGIN = "https://creator.xiaohongshu.com/login"
+URL_NOTE_MANAGER = "https://creator.xiaohongshu.com/new/note-manager"
+URL_NOTE = "https://www.xiaohongshu.com/explore/%s"
+NOTE_ID = re.compile(r"^[0-9a-f]{24}$")
+NOTE_WAIT_SEC = 15   # 发完去笔记管理最多找多久
 
 VISIBILITY_DEFAULT = "公开可见"
 VISIBILITY_SUPPORTED = {"公开可见", "仅自己可见", "仅互关好友可见"}
@@ -561,7 +566,75 @@ def _submit_publish(
     if not ok:
         _check_blocked(page)
         raise RuntimeError("点了发布，但 30 秒内没看到「发布成功」，请到创作中心「笔记管理」确认是否发出（截图：%s）" % shot)
-    return {"tags": tag_report, "shot": shot}
+    note_id = "" if schedule_time is not None else _find_published_note(page, title)
+    return {"tags": tag_report, "shot": shot, "noteId": note_id, "noteUrl": URL_NOTE % note_id if note_id else ""}
+
+
+def _norm_title(t) -> str:
+    return re.sub(r"\s+", "", str(t or ""))
+
+
+def find_note_id(obj, title: str) -> str:
+    """在笔记管理页拿到的数据里，找标题一样的那篇，返回它的笔记 ID（24 位）。列表是新的在前，取第一篇。"""
+    want = _norm_title(title)
+    stack = [obj]
+    while stack:
+        x = stack.pop(0)
+        if isinstance(x, dict):
+            t = next((x[k] for k in ("display_title", "displayTitle", "title", "note_title") if isinstance(x.get(k), str)), None)
+            nid = next((str(x[k]) for k in ("id", "note_id", "noteId") if NOTE_ID.match(str(x.get(k) or ""))), "")
+            if t is not None and nid and _norm_title(t) == want:
+                return nid
+            stack.extend(x.values())
+        elif isinstance(x, list):
+            stack.extend(x)
+    return ""
+
+
+def _find_published_note(page, title: str, wait_sec: Optional[int] = None) -> str:
+    """改：新增。发完去「笔记管理」核对：按标题找到刚发的这篇，拿到笔记 ID。出任何问题都只返回空，不影响发布结果。"""
+    seen = []
+
+    def on_resp(r):
+        seen.append(r)
+
+    try:
+        page.on("response", on_resp)
+        page.goto(URL_NOTE_MANAGER, wait_until="domcontentloaded", timeout=30_000)
+        deadline = time.time() + (NOTE_WAIT_SEC if wait_sec is None else wait_sec)
+        done = 0
+        while time.time() < deadline:
+            page.wait_for_timeout(1_000)
+            for r in seen[done:]:
+                done += 1
+                try:
+                    if "json" not in (r.headers.get("content-type") or ""):
+                        continue
+                    nid = find_note_id(r.json(), title)
+                except Exception:
+                    continue
+                if nid:
+                    return nid
+            # 接口没对上时，再从页面上找：标题所在的卡片里带笔记 ID 的链接或属性
+            nid = page.evaluate("""(want) => {
+              const norm = s => (s || '').replace(/\\s+/g, '');
+              const hit = [...document.querySelectorAll('body *')].find(e => e.children.length === 0 && norm(e.textContent) === norm(want));
+              for (let e = hit, i = 0; e && i < 8; e = e.parentElement, i++) {
+                const m = e.outerHTML.match(/(?:explore\\/|noteId=|note_id=|data-(?:note-)?id=")([0-9a-f]{24})/);
+                if (m) return m[1];
+              }
+              return '';
+            }""", title)
+            if nid:
+                return nid
+    except Exception as e:
+        logger.warning(f"[publish] 去笔记管理核对没成功：{e}")
+    finally:
+        try:
+            page.remove_listener("response", on_resp)
+        except Exception:
+            pass
+    return ""
 
 
 def _wait_publish_success(page, max_wait_sec: int = 30) -> bool:
